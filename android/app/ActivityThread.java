@@ -2593,6 +2593,7 @@ public final class ActivityThread extends ClientTransactionHandler {
         mH.removeMessages(H.GC_WHEN_IDLE);
     }
 
+    // 通过Handler.removeMessages、Looper.myQueue()移除消息。
     void unscheduleGcIdler() {
         if (mGcIdlerScheduled) {
             mGcIdlerScheduled = false;
@@ -3620,7 +3621,7 @@ public final class ActivityThread extends ClientTransactionHandler {
             // TODO(lifecycler): How can this happen?
             return;
         }
-        // 通过HandlerremoveMessages、Looper.myQueue()移除消息。
+        // 通过Handler.removeMessages、Looper.myQueue()移除消息。
         unscheduleGcIdler();
 
         // Start，执行Activity的onStart()方法
@@ -3656,7 +3657,7 @@ public final class ActivityThread extends ClientTransactionHandler {
                         "Activity " + r.intent.getComponent().toShortString() + " did not call through to super.onPostCreate()");
             }
         }
-
+        //UI界面是否可见。在
         updateVisibility(r, true /* show */);
         mSomeActivitiesChanged = true;
     }
@@ -3691,23 +3692,22 @@ public final class ActivityThread extends ClientTransactionHandler {
 
         // The rotation adjustments must be applied before creating the activity, so the activity
         // can get the adjusted display info during creation.
+        // 必须在创建活动之前应用旋转调整，以便活动在创建过程中可以获取调整后的显示信息。
         if (r.mPendingFixedRotationAdjustments != null) {
-            handleFixedRotationAdjustments(r.token, r.mPendingFixedRotationAdjustments,
-                    r.overrideConfig);
+            handleFixedRotationAdjustments(r.token, r.mPendingFixedRotationAdjustments, r.overrideConfig);
             r.mPendingFixedRotationAdjustments = null;
         }
 
         final DisplayManagerGlobal dm = DisplayManagerGlobal.getInstance();
-        // For debugging purposes, if the activity's package name contains the value of
-        // the "debug.use-second-display" system property as a substring, then show
-        // its content on a secondary display if there is one.
+        // For debugging purposes, if the activity's package name contains the value of the "debug.use-second-display"
+        // system property as a substring,   then show its content on a secondary display if there is one.
+        // 出于调试目的，如果活动的包名称包含“debug.use-second-display”系统属性的值作为子字符串，则在辅助显示器上显示其内容（如果有）。
         String pkgName = SystemProperties.get("debug.second-display.pkg");
-        if (pkgName != null && !pkgName.isEmpty()
-                && r.packageInfo.mPackageName.contains(pkgName)) {
+        // 包名不为空，ActivityClientRecord的packageInfo包名对象包含这个包名
+        if (pkgName != null && !pkgName.isEmpty() && r.packageInfo.mPackageName.contains(pkgName)) {
             for (int id : dm.getDisplayIds()) {
                 if (id != Display.DEFAULT_DISPLAY) {
-                    Display display =
-                            dm.getCompatibleDisplay(id, appContext.getResources());
+                    Display display = dm.getCompatibleDisplay(id, appContext.getResources());
                     appContext = (ContextImpl) appContext.createDisplayContext(display);
                     break;
                 }
@@ -3718,12 +3718,14 @@ public final class ActivityThread extends ClientTransactionHandler {
 
     /**
      * Extended implementation of activity launch. Used when server requests a launch or relaunch.
+     * 活动启动的扩展实施。当服务器请求启动或重新启动时使用。在handleRelaunchActivityInner()方法中被调用
      */
     @Override
-    public Activity handleLaunchActivity(ActivityClientRecord r,
-                                         PendingTransactionActions pendingActions, Intent customIntent) {
-        // If we are getting ready to gc after going to the background, well
-        // we are back active so skip it.
+    public Activity handleLaunchActivity(ActivityClientRecord r, PendingTransactionActions pendingActions, Intent customIntent) {
+        // If we are getting ready to gc after going to the background, well we are back active so skip it.
+        // 如果我们在进入后台后准备 gc，那么我们又回到了活动状态，所以跳过它。
+        // unscheduleGcIdler()：通过Handler.removeMessages、Looper.myQueue()移除消息。
+        // 在前面的handleStartActivity()方法的L3625行也调用了它
         unscheduleGcIdler();
         mSomeActivitiesChanged = true;
 
@@ -3732,20 +3734,19 @@ public final class ActivityThread extends ClientTransactionHandler {
             mProfiler.startProfiling();
         }
 
-        // Make sure we are running with the most recent config.
+        // Make sure we are running with the most recent config.确认我们在运行最近的config配置
         handleConfigurationChanged(null, null);
 
-        if (localLOGV) Slog.v(
-                TAG, "Handling launch of " + r);
-
-        // Initialize before creating the activity
-        if (!ThreadedRenderer.sRendererDisabled
-                && (r.activityInfo.flags & ActivityInfo.FLAG_HARDWARE_ACCELERATED) != 0) {
+        // Initialize before creating the activity：在创建Activity之前初始化
+        if (!ThreadedRenderer.sRendererDisabled && (r.activityInfo.flags & ActivityInfo.FLAG_HARDWARE_ACCELERATED) != 0) {
+            // HardwareRenderer.preload()的注释：Start render thread and initialize EGL or Vulkan————启动呈现线程并初始化EGL或Vulkan。
             HardwareRenderer.preload();
         }
+        // 初始化WindowManager
         WindowManagerGlobal.initialize();
 
         // Hint the GraphicsEnvironment that an activity is launching on the process.
+        // 提示 GraphicsEnvironment 活动正在进程中启动。
         GraphicsEnvironment.hintActivityLaunch();
 
         final Activity a = performLaunchActivity(r, customIntent);
@@ -3753,6 +3754,7 @@ public final class ActivityThread extends ClientTransactionHandler {
         if (a != null) {
             r.createdConfig = new Configuration(mConfiguration);
             reportSizeConfigurations(r);
+            // activity没有被finish掉。待处理活动对象不为空。
             if (!r.activity.mFinished && pendingActions != null) {
                 pendingActions.setOldState(r.state);
                 pendingActions.setRestoreInstanceState(true);
@@ -3760,15 +3762,13 @@ public final class ActivityThread extends ClientTransactionHandler {
             }
         } else {
             // If there was an error, for any reason, tell the activity manager to stop us.
+            // 如果发生异常/错误，无论何种原因，都通知ActivityTaskManager停止当前Activity
             try {
-                ActivityTaskManager.getService()
-                        .finishActivity(r.token, Activity.RESULT_CANCELED, null,
-                                Activity.DONT_FINISH_TASK_WITH_ACTIVITY);
+                ActivityTaskManager.getService().finishActivity(r.token, Activity.RESULT_CANCELED, null, Activity.DONT_FINISH_TASK_WITH_ACTIVITY);
             } catch (RemoteException ex) {
                 throw ex.rethrowFromSystemServer();
             }
         }
-
         return a;
     }
 
@@ -3804,13 +3804,19 @@ public final class ActivityThread extends ClientTransactionHandler {
         }
     }
 
+    // ReferrerIntent是Intent的子类。简单理解就是为Activity提供一个新的Intent对象。
     private void deliverNewIntents(ActivityClientRecord r, List<ReferrerIntent> intents) {
         final int N = intents.size();
         for (int i = 0; i < N; i++) {
             ReferrerIntent intent = intents.get(i);
+            // 往Intent对象里面存一个ClassLoader类加载器
             intent.setExtrasClassLoader(r.activity.getClassLoader());
+            // 准备好进程
             intent.prepareToEnterProcess();
+            // noteStateNotSaved()方法注释：Marks the fragment state as unsaved. This allows for "state loss" detection.
+            // 将片段状态标记为未保存。 这允许检测fragment的“状态丢失”。
             r.activity.mFragments.noteStateNotSaved();
+            // callActivityOnNewIntent(r.activity, intent)方法：最终调用Activity的onNewIntent()方法
             mInstrumentation.callActivityOnNewIntent(r.activity, intent);
         }
     }
@@ -4138,8 +4144,7 @@ public final class ActivityThread extends ClientTransactionHandler {
 
     @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     private void handleReceiver(ReceiverData data) {
-        // If we are getting ready to gc after going to the background, well
-        // we are back active so skip it.
+        // If we are getting ready to gc after going to the background, well we are back active so skip it.
         unscheduleGcIdler();
 
         String component = data.intent.getComponent().getClassName();
@@ -4321,8 +4326,7 @@ public final class ActivityThread extends ClientTransactionHandler {
 
     @UnsupportedAppUsage
     private void handleCreateService(CreateServiceData data) {
-        // If we are getting ready to gc after going to the background, well
-        // we are back active so skip it.
+        // If we are getting ready to gc after going to the background, well we are back active so skip it.
         unscheduleGcIdler();
 
         LoadedApk packageInfo = getPackageInfoNoCheck(
@@ -4620,10 +4624,8 @@ public final class ActivityThread extends ClientTransactionHandler {
     }
 
     @Override
-    public void handleResumeActivity(IBinder token, boolean finalStateRequest, boolean isForward,
-                                     String reason) {
-        // If we are getting ready to gc after going to the background, well
-        // we are back active so skip it.
+    public void handleResumeActivity(IBinder token, boolean finalStateRequest, boolean isForward, String reason) {
+        // If we are getting ready to gc after going to the background, well we are back active so skip it.
         unscheduleGcIdler();
         mSomeActivitiesChanged = true;
 
@@ -5023,15 +5025,22 @@ public final class ActivityThread extends ClientTransactionHandler {
             callActivityOnSaveInstanceState(r);
         }
     }
-    //更新可见性
+    //更新Activity的可见性，Activity都是在onStart()状态开始才可见。在onStart()方法和onStop()方法调用：
+    // onStart()方法中show=true：activity的makeVisible()方法里面会调用mDecor.setVisibility(View.VISIBLE)方法，让根布局DecorView显示出来。
+    // onStop()方法中 show=false：activity的makeVisible()方法里面会调用mDecor.setVisibility(View.INVISIBLE)方法，让根布局DecorView隐藏INVISIBLE。
     private void updateVisibility(ActivityClientRecord r, boolean show) {
+        // v：本质上是DecorView，他是Activity的根布局View。
         View v = r.activity.mDecor;
+        // v != null，表示Activity已经创建成功，Activity的根布局DecorView也已经创建成功。
         if (v != null) {
+            // show = true：显示；show = false：不显示，INVISIBLE类型的隐藏
             if (show) {
                 if (!r.activity.mVisibleFromServer) {
                     r.activity.mVisibleFromServer = true;
                     mNumVisibleActivities++;
                     if (r.activity.mVisibleFromClient) {
+                        // Activity的makeVisible()方法里面会调用mDecor.setVisibility(View.VISIBLE)方法，
+                        // 让根布局DecorView显示出来。而mDecor就是DecorView，Activity的根布局View。
                         r.activity.makeVisible();
                     }
                 }
@@ -5043,6 +5052,7 @@ public final class ActivityThread extends ClientTransactionHandler {
                     r.newConfig = null;
                 }
             } else {
+                // show = true：显示；show = false：不显示，INVISIBLE类型的隐藏
                 if (r.activity.mVisibleFromServer) {
                     r.activity.mVisibleFromServer = false;
                     mNumVisibleActivities--;
@@ -5417,10 +5427,8 @@ public final class ActivityThread extends ClientTransactionHandler {
     }
 
     @Override
-    public void handleRelaunchActivity(ActivityClientRecord tmp,
-                                       PendingTransactionActions pendingActions) {
-        // If we are getting ready to gc after going to the background, well
-        // we are back active so skip it.
+    public void handleRelaunchActivity(ActivityClientRecord tmp, PendingTransactionActions pendingActions) {
+        // If we are getting ready to gc after going to the background, well we are back active so skip it.
         unscheduleGcIdler();
         mSomeActivitiesChanged = true;
 
@@ -5902,7 +5910,6 @@ public final class ActivityThread extends ClientTransactionHandler {
     }
 
     private void handleConfigurationChanged(Configuration config, CompatibilityInfo compat) {
-
         int configDiff;
         boolean equivalent;
 
@@ -5921,9 +5928,6 @@ public final class ActivityThread extends ClientTransactionHandler {
 
             if (config == null) {
                 // TODO (b/135719017): Temporary log for debugging IME service.
-                if (Build.IS_DEBUGGABLE && mHasImeComponent) {
-                    Log.w(TAG, "handleConfigurationChanged for IME app but config is null");
-                }
                 return;
             }
 
@@ -5934,9 +5938,6 @@ public final class ActivityThread extends ClientTransactionHandler {
             // flag as that method uses the same check on the activity config override as well.
             equivalent = mConfiguration != null && (0 == mConfiguration.diffPublicOnly(config));
 
-            if (DEBUG_CONFIGURATION) Slog.v(TAG, "Handle configuration changed: "
-                    + config);
-
             mResourcesManager.applyConfigurationToResourcesLocked(config, compat);
             updateLocaleListFromAppContext(mInitialApplication.getApplicationContext(),
                     mResourcesManager.getConfiguration().getLocales());
@@ -5946,11 +5947,6 @@ public final class ActivityThread extends ClientTransactionHandler {
             }
             if (!mConfiguration.isOtherSeqNewer(config) && compat == null) {
                 // TODO (b/135719017): Temporary log for debugging IME service.
-                if (Build.IS_DEBUGGABLE && mHasImeComponent) {
-                    Log.w(TAG, "handleConfigurationChanged for IME app but config seq is obsolete "
-                            + ", config=" + config
-                            + ", mConfiguration=" + mConfiguration);
-                }
                 return;
             }
 
