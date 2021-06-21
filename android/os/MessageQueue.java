@@ -942,7 +942,7 @@ public final class MessageQueue {
      * Callback interface for discovering when a thread is going to block
      * waiting for more messages.
      */
-    public static interface IdleHandler {
+    public interface IdleHandler {
         /**
          * Called when the message queue has run out of messages and will now
          * wait for more.  Return true to keep your idle handler active, false

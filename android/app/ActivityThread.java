@@ -3487,6 +3487,7 @@ public final class ActivityThread extends ClientTransactionHandler {
      * Core implementation of activity launch.Activity活动发射/加载实现的核心。
      */
     private Activity performLaunchActivity(ActivityClientRecord r, Intent customIntent) {
+        //ActivityInfo：保存特定应用程序Activity活动或接收器的信息。
         ActivityInfo aInfo = r.activityInfo;
         if (r.packageInfo == null) {
             r.packageInfo = getPackageInfo(aInfo.applicationInfo, r.compatInfo, Context.CONTEXT_INCLUDE_CODE);
@@ -3499,25 +3500,30 @@ public final class ActivityThread extends ClientTransactionHandler {
         }
 
         if (r.activityInfo.targetActivity != null) {
+            // r.activityInfo.packageName：当前启动App的包名；r.activityInfo.targetActivity：当前启动App的启动Activity的类名，也就是在
+            // AndroidManifest.xml文件清单里面设置了<category android:name="android.intent.category.LAUNCHER" />属性的Activity。
             component = new ComponentName(r.activityInfo.packageName, r.activityInfo.targetActivity);
         }
-
+        // 这里是获取打一个Context的对象，通过ActivityClientRecord对象创建一个基本的Context对象，而ContextImpl是Context的实现子类。
         ContextImpl appContext = createBaseContextForActivity(r);
         Activity activity = null;
         try {
+            // Java的类加载器：双亲委托机制。
             java.lang.ClassLoader cl = appContext.getClassLoader();
-            activity = mInstrumentation.newActivity(
-                    cl, component.getClassName(), r.intent);
+            // 通过类加载器、启动的Activity类名、intent对象创建一个Activity对象。
+            activity = mInstrumentation.newActivity(cl, component.getClassName(), r.intent);
             StrictMode.incrementExpectedActivityCount(activity.getClass());
+            // 保存类加载器。这个ClassLoader类加载器可以通过bundle对象来获取：intent.getBundleExtra("xxxx").getClassLoader()
             r.intent.setExtrasClassLoader(cl);
+            // 为app运行的进程信息做准备
             r.intent.prepareToEnterProcess();
             if (r.state != null) {
+                // 将ClassLoader类加载器保存到bundle对象中。
                 r.state.setClassLoader(cl);
             }
         } catch (Exception e) {
             if (!mInstrumentation.onException(activity, e)) {
-                throw new RuntimeException(
-                        "Unable to instantiate activity " + component + ": " + e.toString(), e);
+                throw new RuntimeException("Unable to instantiate activity " + component + ": " + e.toString(), e);
             }
         }
 
@@ -3530,8 +3536,6 @@ public final class ActivityThread extends ClientTransactionHandler {
                 if (r.overrideConfig != null) {
                     config.updateFrom(r.overrideConfig);
                 }
-                if (DEBUG_CONFIGURATION) Slog.v(TAG, "Launching activity "
-                        + r.activityInfo.name + " with config " + config);
                 Window window = null;
                 if (r.mPendingRemoveWindow != null && r.mPreserveWindow) {
                     window = r.mPendingRemoveWindow;
@@ -3539,12 +3543,12 @@ public final class ActivityThread extends ClientTransactionHandler {
                     r.mPendingRemoveWindowManager = null;
                 }
 
-                // Activity resources must be initialized with the same loaders as the
-                // application context.
-                appContext.getResources().addLoaders(
-                        app.getResources().getLoaders().toArray(new ResourcesLoader[0]));
+                // Activity resources must be initialized with the same loaders as the application context.
+                // Activity的资源必须和application应用在同一个加载器里面被初始化。
+                appContext.getResources().addLoaders(app.getResources().getLoaders().toArray(new ResourcesLoader[0]));
 
                 appContext.setOuterContext(activity);
+
                 activity.attach(appContext, this, getInstrumentation(), r.token,
                         r.ident, app, r.intent, r.activityInfo, title, r.parent,
                         r.embeddedID, r.lastNonConfigurationInstances, config,
@@ -3557,12 +3561,14 @@ public final class ActivityThread extends ClientTransactionHandler {
                 r.lastNonConfigurationInstances = null;
                 checkAndBlockForNetworkAccess();
                 activity.mStartedActivity = false;
+                // 获取应用主题theme
                 int theme = r.activityInfo.getThemeResource();
                 if (theme != 0) {
                     activity.setTheme(theme);
                 }
 
                 activity.mCalled = false;
+                // 创建activity，并调用onCreate()方法。
                 if (r.isPersistable()) {
                     mInstrumentation.callActivityOnCreate(activity, r.state, r.persistentState);
                 } else {
@@ -3570,40 +3576,38 @@ public final class ActivityThread extends ClientTransactionHandler {
                 }
                 if (!activity.mCalled) {
                     throw new SuperNotCalledException(
-                            "Activity " + r.intent.getComponent().toShortString() +
-                                    " did not call through to super.onCreate()");
+                            "Activity " + r.intent.getComponent().toShortString() + " did not call through to super.onCreate()");
                 }
+                // 保存创建的Activity对象
                 r.activity = activity;
-                mLastReportedWindowingMode.put(activity.getActivityToken(),
-                        config.windowConfiguration.getWindowingMode());
+                mLastReportedWindowingMode.put(activity.getActivityToken(), config.windowConfiguration.getWindowingMode());
             }
+            //给这个Activity对象的状态设置状态标识符：ON_CREATE，标识执行状态
             r.setState(ON_CREATE);
 
-            // updatePendingActivityConfiguration() reads from mActivities to update
-            // ActivityClientRecord which runs in a different thread. Protect modifications to
-            // mActivities to avoid race.
+            // updatePendingActivityConfiguration() reads from mActivities to update ActivityClientRecord
+            // which runs in a different thread. Protect modifications to mActivities to avoid race.
+            // updatePendingActivityConfiguration() 从 mActivities 读取以更新在不同线程中运行的 ActivityClientRecord。 保护对 mActivity 的修改以避免竞争。
             synchronized (mResourcesManager) {
                 mActivities.put(r.token, r);
             }
 
         } catch (SuperNotCalledException e) {
             throw e;
-
         } catch (Exception e) {
             if (!mInstrumentation.onException(activity, e)) {
-                throw new RuntimeException(
-                        "Unable to start activity " + component
-                                + ": " + e.toString(), e);
+                throw new RuntimeException("Unable to start activity " + component + ": " + e.toString(), e);
             }
         }
-
         return activity;
     }
 
+    // 执行Activity的onStart()方法，PendingTransactionActions pendingActions：待处理事务对象
     @Override
     public void handleStartActivity(IBinder token, PendingTransactionActions pendingActions) {
         final ActivityClientRecord r = mActivities.get(token);
         final Activity activity = r.activity;
+        // activity为空，表示没有找到这个activity的实例，不做任何的下一步处理。
         if (r.activity == null) {
             // TODO(lifecycler): What do we do in this case?
             return;
@@ -3612,27 +3616,27 @@ public final class ActivityThread extends ClientTransactionHandler {
             throw new IllegalStateException("Can't start activity that is not stopped.");
         }
         if (r.activity.mFinished) {
+            // activity的mFinished为true，表示这个activity的实例已经被finish掉了。推出了，什么也不做。
             // TODO(lifecycler): How can this happen?
             return;
         }
-
+        // 通过HandlerremoveMessages、Looper.myQueue()移除消息。
         unscheduleGcIdler();
 
-        // Start
+        // Start，执行Activity的onStart()方法
         activity.performStart("handleStartActivity");
+        //给这个Activity对象的状态设置状态标识符：ON_START，标识执行状态
         r.setState(ON_START);
-
+        // 待处理事务对象为空，直接return。
         if (pendingActions == null) {
             // No more work to do.
             return;
         }
-
-        // Restore instance state
+        // Restore instance state：回复对象的状态
         if (pendingActions.shouldRestoreInstanceState()) {
             if (r.isPersistable()) {
                 if (r.state != null || r.persistentState != null) {
-                    mInstrumentation.callActivityOnRestoreInstanceState(activity, r.state,
-                            r.persistentState);
+                    mInstrumentation.callActivityOnRestoreInstanceState(activity, r.state, r.persistentState);
                 }
             } else if (r.state != null) {
                 mInstrumentation.callActivityOnRestoreInstanceState(activity, r.state);
@@ -3643,15 +3647,13 @@ public final class ActivityThread extends ClientTransactionHandler {
         if (pendingActions.shouldCallOnPostCreate()) {
             activity.mCalled = false;
             if (r.isPersistable()) {
-                mInstrumentation.callActivityOnPostCreate(activity, r.state,
-                        r.persistentState);
+                mInstrumentation.callActivityOnPostCreate(activity, r.state, r.persistentState);
             } else {
                 mInstrumentation.callActivityOnPostCreate(activity, r.state);
             }
             if (!activity.mCalled) {
                 throw new SuperNotCalledException(
-                        "Activity " + r.intent.getComponent().toShortString()
-                                + " did not call through to super.onPostCreate()");
+                        "Activity " + r.intent.getComponent().toShortString() + " did not call through to super.onPostCreate()");
             }
         }
 
@@ -5021,7 +5023,7 @@ public final class ActivityThread extends ClientTransactionHandler {
             callActivityOnSaveInstanceState(r);
         }
     }
-
+    //更新可见性
     private void updateVisibility(ActivityClientRecord r, boolean show) {
         View v = r.activity.mDecor;
         if (v != null) {
