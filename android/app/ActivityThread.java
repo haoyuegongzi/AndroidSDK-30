@@ -3816,32 +3816,35 @@ public final class ActivityThread extends ClientTransactionHandler {
             // noteStateNotSaved()方法注释：Marks the fragment state as unsaved. This allows for "state loss" detection.
             // 将片段状态标记为未保存。 这允许检测fragment的“状态丢失”。
             r.activity.mFragments.noteStateNotSaved();
-            // callActivityOnNewIntent(r.activity, intent)方法：最终调用Activity的onNewIntent()方法
+            // callActivityOnNewIntent(r.activity, intent)方法：onNewIntent(Intent intent)方法
             mInstrumentation.callActivityOnNewIntent(r.activity, intent);
         }
     }
 
+    // 这个没什么好说的，最终的重点在deliverNewIntents()方法上。
     @Override
     public void handleNewIntent(IBinder token, List<ReferrerIntent> intents) {
         final ActivityClientRecord r = mActivities.get(token);
         if (r == null) {
             return;
         }
-
         checkAndBlockForNetworkAccess();
         deliverNewIntents(r, intents);
     }
 
+    // 处理附加的请求协助上下文,在L2027行handleMessage(Message msg)方法的L2147行调用
     public void handleRequestAssistContextExtras(RequestAssistContextExtras cmd) {
         // Filling for autofill has a few differences:
-        // - it does not need an AssistContent
-        // - it does not call onProvideAssistData()
-        // - it needs an IAutoFillCallback
+        // - it does not need an AssistContent：不需要辅助上下文
+        // - it does not call onProvideAssistData()：不调用onProvideAssistData()方法
+        // - it needs an IAutoFillCallback：他需要IAutoFillCallback这个回调接口
+        // ActivityManager.ASSIST_CONTEXT_AUTOFILL：辅助上下文的请求类型：为自动填充生成完整的 AssistStructure。
         boolean forAutofill = cmd.requestType == ActivityManager.ASSIST_CONTEXT_AUTOFILL;
 
         // TODO: decide if lastSessionId logic applies to autofill sessions
+        // TODO：决定 lastSessionId 逻辑是否适用于自动填充会话情景
         if (mLastSessionId != cmd.sessionId) {
-            // Clear the existing structures
+            // Clear the existing structures：清空已经存在的辅助结果渠道。
             mLastSessionId = cmd.sessionId;
             for (int i = mLastAssistStructures.size() - 1; i >= 0; i--) {
                 AssistStructure structure = mLastAssistStructures.get(i).get();
@@ -3867,14 +3870,12 @@ public final class ActivityThread extends ClientTransactionHandler {
             if (cmd.requestType == ActivityManager.ASSIST_CONTEXT_FULL || forAutofill) {
                 structure = new AssistStructure(r.activity, forAutofill, cmd.flags);
                 Intent activityIntent = r.activity.getIntent();
-                boolean notSecure = r.window == null ||
-                        (r.window.getAttributes().flags
-                                & WindowManager.LayoutParams.FLAG_SECURE) == 0;
+                boolean notSecure = r.window == null || (r.window.getAttributes().flags & WindowManager.LayoutParams.FLAG_SECURE) == 0;
                 if (activityIntent != null && notSecure) {
                     if (!forAutofill) {
                         Intent intent = new Intent(activityIntent);
-                        intent.setFlags(intent.getFlags() & ~(Intent.FLAG_GRANT_WRITE_URI_PERMISSION
-                                | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION));
+                        intent.setFlags(intent.getFlags() &
+                                ~(Intent.FLAG_GRANT_WRITE_URI_PERMISSION | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION));
                         intent.removeUnsafeExtras();
                         content.setDefaultIntent(intent);
                     }
@@ -3910,9 +3911,8 @@ public final class ActivityThread extends ClientTransactionHandler {
     /**
      * Fetches the user actions for the corresponding activity
      */
-    private void handleRequestDirectActions(@NonNull IBinder activityToken,
-                                            @NonNull IVoiceInteractor interactor, @NonNull CancellationSignal cancellationSignal,
-                                            @NonNull RemoteCallback callback) {
+    private void handleRequestDirectActions(@NonNull IBinder activityToken, @NonNull IVoiceInteractor interactor,
+                                            @NonNull CancellationSignal cancellationSignal, @NonNull RemoteCallback callback) {
         final ActivityClientRecord r = mActivities.get(activityToken);
         if (r == null) {
             Log.w(TAG, "requestDirectActions(): no activity for " + activityToken);
@@ -3954,12 +3954,10 @@ public final class ActivityThread extends ClientTransactionHandler {
     }
 
     /**
-     * Performs an actions in the corresponding activity
+     * Performs an actions in the corresponding activity：在相应的活动中执行一个动作
      */
-    private void handlePerformDirectAction(@NonNull IBinder activityToken,
-                                           @NonNull String actionId, @Nullable Bundle arguments,
-                                           @NonNull CancellationSignal cancellationSignal,
-                                           @NonNull RemoteCallback resultCallback) {
+    private void handlePerformDirectAction(@NonNull IBinder activityToken, @NonNull String actionId, @Nullable Bundle arguments,
+                                           @NonNull CancellationSignal cancellationSignal, @NonNull RemoteCallback resultCallback) {
         final ActivityClientRecord r = mActivities.get(activityToken);
         if (r != null) {
             final int lifecycleState = r.getLifecycleState();
@@ -3975,6 +3973,7 @@ public final class ActivityThread extends ClientTransactionHandler {
         }
     }
 
+    // 在L2027行的handleMessage()的L2150行调用
     public void handleTranslucentConversionComplete(IBinder token, boolean drawComplete) {
         ActivityClientRecord r = mActivities.get(token);
         if (r != null) {
@@ -3982,6 +3981,7 @@ public final class ActivityThread extends ClientTransactionHandler {
         }
     }
 
+    // 在L2027行的handleMessage()的L2157行调用
     public void onNewActivityOptions(IBinder token, ActivityOptions options) {
         ActivityClientRecord r = mActivities.get(token);
         if (r != null) {
@@ -3989,6 +3989,7 @@ public final class ActivityThread extends ClientTransactionHandler {
         }
     }
 
+    // 在L2027行的handleMessage()的L2153行调用
     public void handleInstallProvider(ProviderInfo info) {
         final StrictMode.ThreadPolicy oldPolicy = StrictMode.allowThreadDiskWrites();
         try {
@@ -3998,6 +3999,7 @@ public final class ActivityThread extends ClientTransactionHandler {
         }
     }
 
+    // 在L2027行的handleMessage()的L2160行调用
     private void handleEnterAnimationComplete(IBinder token) {
         ActivityClientRecord r = mActivities.get(token);
         if (r != null) {
@@ -4005,10 +4007,12 @@ public final class ActivityThread extends ClientTransactionHandler {
         }
     }
 
+    // 在L2027行的handleMessage()的L2163行调用
     private void handleStartBinderTracking() {
         Binder.enableTracing();
     }
 
+    // 在L2027行的handleMessage()的L2166行调用
     private void handleStopBinderTrackingAndDump(ParcelFileDescriptor fd) {
         try {
             Binder.disableTracing();
@@ -4029,26 +4033,33 @@ public final class ActivityThread extends ClientTransactionHandler {
 
         final boolean receivedByApp = r.activity.onPictureInPictureRequested();
         if (!receivedByApp) {
-            // Previous recommendation was for apps to enter picture-in-picture in
-            // onUserLeavingHint() for cases such as the app being put into the background. For
-            // backwards compatibility with apps that are not using the newer
-            // onPictureInPictureRequested() callback, we schedule the life cycle events needed to
-            // trigger onUserLeavingHint(), then we return the activity to its previous state.
+            // Previous recommendation was for apps to enter picture-in-picture in onUserLeavingHint() for cases such
+            // as the app being put into the background. For backwards compatibility with apps that are not using the
+            // newer onPictureInPictureRequested() callback, we schedule the life cycle events needed to trigger
+            // onUserLeavingHint(), then we return the activity to its previous state.
+            // 之前的建议是让应用程序在onUserLeavingHint() 中输入画中画，例如应用程序被置于后台的情况。
+            // 为了与不使用较新的 onPictureInPictureRequested() 回调的应用程序向后兼容，我们安排了触发onUserLeavingHint()
+            // 所需的生命周期事件，然后将活动返回到其先前的状态。
             schedulePauseWithUserLeaveHintAndReturnToCurrentState(r);
         }
     }
 
     /**
-     * Cycle activity through onPause and onUserLeaveHint so that PIP is entered if supported, then
-     * return to its previous state. This allows activities that rely on onUserLeaveHint instead of
-     * onPictureInPictureRequested to enter picture-in-picture.
+     * Cycle activity through onPause and onUserLeaveHint so that PIP is entered if supported, then return to its previous state.
+     * This allows activities that rely on onUserLeaveHint instead of onPictureInPictureRequested to enter picture-in-picture.
+     * 通过 onPause 和 onUserLeaveHint 循环活动，以便在支持的情况下输入 PIP，然后返回其先前状态。
+     * 这允许依赖于 onUserLeaveHint 而不是 onPictureInPictureRequested 的活动进入画中画。
+     * schedule Pause With User Leave Hint And Return To Current State:安排暂停与用户离开提示并返回到当前状态
+     * 总结起来就是管理ON_RESUME和ON_PAUSE两个生命周期
      */
     private void schedulePauseWithUserLeaveHintAndReturnToCurrentState(ActivityClientRecord r) {
         final int prevState = r.getLifecycleState();
+        // 这个if()判断
         if (prevState != ON_RESUME && prevState != ON_PAUSE) {
             return;
         }
 
+        // Activity生命周期在PAUSE和RESUME之间切换
         switch (prevState) {
             case ON_RESUME:
                 // Schedule a PAUSE then return to RESUME.
@@ -4142,63 +4153,53 @@ public final class ActivityThread extends ClientTransactionHandler {
         return sCurrentBroadcastIntent.get();
     }
 
+    // 在L2027行的handleMessage()的L2044行调用，处理通过广播进行通信的场景
     @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     private void handleReceiver(ReceiverData data) {
         // If we are getting ready to gc after going to the background, well we are back active so skip it.
+        // 如果我们在进入后台后准备 gc，那么我们又回到了活动状态，所以跳过它。
+        // unscheduleGcIdler()：通过Handler.removeMessages、Looper.myQueue()移除消息。
         unscheduleGcIdler();
 
         String component = data.intent.getComponent().getClassName();
 
-        LoadedApk packageInfo = getPackageInfoNoCheck(
-                data.info.applicationInfo, data.compatInfo);
+        LoadedApk packageInfo = getPackageInfoNoCheck(data.info.applicationInfo, data.compatInfo);
 
         IActivityManager mgr = ActivityManager.getService();
 
         Application app;
-        BroadcastReceiver receiver;
+        BroadcastReceiver receiver;//广播对象
         ContextImpl context;
         try {
+            // Application应用对象
             app = packageInfo.makeApplication(false, mInstrumentation);
             context = (ContextImpl) app.getBaseContext();
             if (data.info.splitName != null) {
                 context = (ContextImpl) context.createContextForSplit(data.info.splitName);
             }
-            java.lang.ClassLoader cl = context.getClassLoader();
+            java.lang.ClassLoader cl = context.getClassLoader();//从应用的上下文Context获取一个ClassLoader类加载器
             data.intent.setExtrasClassLoader(cl);
             data.intent.prepareToEnterProcess();
             data.setExtrasClassLoader(cl);
-            receiver = packageInfo.getAppFactory()
-                    .instantiateReceiver(cl, data.info.name, data.intent);
+            // 获取到广播对象
+            receiver = packageInfo.getAppFactory().instantiateReceiver(cl, data.info.name, data.intent);
         } catch (Exception e) {
-            if (DEBUG_BROADCAST) Slog.i(TAG,
-                    "Finishing failed broadcast to " + data.intent.getComponent());
+            if (DEBUG_BROADCAST) Slog.i(TAG, "Finishing failed broadcast to " + data.intent.getComponent());
             data.sendFinished(mgr);
-            throw new RuntimeException(
-                    "Unable to instantiate receiver " + component
-                            + ": " + e.toString(), e);
+            throw new RuntimeException("Unable to instantiate receiver " + component + ": " + e.toString(), e);
         }
 
         try {
-            if (localLOGV) Slog.v(
-                    TAG, "Performing receive of " + data.intent
-                            + ": app=" + app
-                            + ", appName=" + app.getPackageName()
-                            + ", pkg=" + packageInfo.getPackageName()
-                            + ", comp=" + data.intent.getComponent().toShortString()
-                            + ", dir=" + packageInfo.getAppDir());
-
             sCurrentBroadcastIntent.set(data.intent);
+            // 给广播设置内部通信用的Intent对象。
             receiver.setPendingResult(data);
-            receiver.onReceive(context.getReceiverRestrictedContext(),
-                    data.intent);
+            // 发送广播
+            receiver.onReceive(context.getReceiverRestrictedContext(), data.intent);
         } catch (Exception e) {
-            if (DEBUG_BROADCAST) Slog.i(TAG,
-                    "Finishing failed broadcast to " + data.intent.getComponent());
+            if (DEBUG_BROADCAST) Slog.i(TAG, "Finishing failed broadcast to " + data.intent.getComponent());
             data.sendFinished(mgr);
             if (!mInstrumentation.onException(receiver, e)) {
-                throw new RuntimeException(
-                        "Unable to start receiver " + component
-                                + ": " + e.toString(), e);
+                throw new RuntimeException("Unable to start receiver " + component + ": " + e.toString(), e);
             }
         } finally {
             sCurrentBroadcastIntent.set(null);
@@ -4209,17 +4210,13 @@ public final class ActivityThread extends ClientTransactionHandler {
         }
     }
 
-    // Instantiate a BackupAgent and tell it that it's alive
-    private void handleCreateBackupAgent(CreateBackupAgentData data) {
-        if (DEBUG_BACKUP) Slog.v(TAG, "handleCreateBackupAgent: " + data);
-
-        // Sanity check the requested target package's uid against ours
+    // Instantiate a BackupAgent and tell it that it's alive：实例化一个 BackupAgent 并告诉它它是活动的
+    private void handleCreateBackupAgent(CreateBackupAgentData data) {// 创建备份客户端
+        // Sanity check the requested target package's uid against ours：根据我们的 uid 检查请求的目标包的 uid
         try {
-            PackageInfo requestedPackage = getPackageManager().getPackageInfo(
-                    data.appInfo.packageName, 0, UserHandle.myUserId());
+            PackageInfo requestedPackage = getPackageManager().getPackageInfo(data.appInfo.packageName, 0, UserHandle.myUserId());
             if (requestedPackage.applicationInfo.uid != Process.myUid()) {
-                Slog.w(TAG, "Asked to instantiate non-matching package "
-                        + data.appInfo.packageName);
+                Slog.w(TAG, "Asked to instantiate non-matching package " + data.appInfo.packageName);
                 return;
             }
         } catch (RemoteException e) {
@@ -4227,6 +4224,8 @@ public final class ActivityThread extends ClientTransactionHandler {
         }
 
         // no longer idle; we have backup work to do
+        // 不再有空闲，我们还有准备工作要做
+        // unscheduleGcIdler()：通过Handler.removeMessages、Looper.myQueue()移除消息。
         unscheduleGcIdler();
 
         // instantiate the BackupAgent class named in the manifest
