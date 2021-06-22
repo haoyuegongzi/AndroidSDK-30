@@ -88,14 +88,7 @@ import android.text.TextUtils;
 import android.text.method.TextKeyListener;
 import android.transition.Scene;
 import android.transition.TransitionManager;
-import android.util.ArrayMap;
-import android.util.AttributeSet;
-import android.util.EventLog;
-import android.util.Log;
-import android.util.PrintWriterPrinter;
-import android.util.Slog;
-import android.util.SparseArray;
-import android.util.SuperNotCalledException;
+import android.util.*;
 import android.view.ActionMode;
 import android.view.ContextMenu;
 import android.view.ContextMenu.ContextMenuInfo;
@@ -1973,11 +1966,9 @@ public class Activity extends ContextThemeWrapper
         onTopResumedActivityChanged(isTopResumedActivity);
 
         if (isTopResumedActivity) {
-            EventLogTags.writeWmOnTopResumedGainedCalled(mIdent, getComponentName().getClassName(),
-                    reason);
+            EventLogTags.writeWmOnTopResumedGainedCalled(mIdent, getComponentName().getClassName(), reason);
         } else {
-            EventLogTags.writeWmOnTopResumedLostCalled(mIdent, getComponentName().getClassName(),
-                    reason);
+            EventLogTags.writeWmOnTopResumedLostCalled(mIdent, getComponentName().getClassName(), reason);
         }
     }
 
@@ -3949,9 +3940,8 @@ public class Activity extends ContextThemeWrapper
     }
 
     public void onWindowAttributesChanged(WindowManager.LayoutParams params) {
-        // Update window manager if: we have a view, that view is
-        // attached to its parent (which will be a RootView), and
-        // this activity is not embedded.
+        // Update window manager if: we have a view, that view is attached to its parent (which will be a RootView),
+        // and this activity is not embedded.
         if (mParent == null) {
             View decor = mDecor;
             if (decor != null && decor.getParent() != null) {

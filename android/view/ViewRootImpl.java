@@ -873,11 +873,9 @@ public final class ViewRootImpl implements ViewParent,
     }
 
     /**
-     * Notifies us that our child has been rebuilt, following
-     * a window preservation operation. In these cases we
-     * keep the same DecorView, but the activity controlling it
-     * is a different instance, and we need to update our
-     * callbacks.
+     * Notifies us that our child has been rebuilt, following a window preservation operation. In these cases we keep
+     * the same DecorView, but the activity controlling it is a different instance, and we need to update our callbacks.
+     *
      *
      * @hide
      */

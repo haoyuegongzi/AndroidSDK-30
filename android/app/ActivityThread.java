@@ -4415,7 +4415,7 @@ public final class ActivityThread extends ClientTransactionHandler {
             Service s = mServices.get(info.token);
             if (s != null) {
                 PrintWriter pw = new FastPrintWriter(new FileOutputStream(info.fd.getFileDescriptor()));
-                s.dump(info.fd.getFileDescriptor(), pw, info.args);//其实dump()方法里面啥也没有干
+                s.dump(info.fd.getFileDescriptor(), pw, info.args);//其实dump()方法里面就println()外，啥也没有干
                 pw.flush();
             }
         } finally {
@@ -4456,12 +4456,13 @@ public final class ActivityThread extends ClientTransactionHandler {
         }
     }
 
+    // Service的参数/数据传输
     private void handleServiceArgs(ServiceArgsData data) {
         Service s = mServices.get(data.token);
         if (s != null) {
             try {
-                if (data.args != null) {
-                    data.args.setExtrasClassLoader(s.getClassLoader());
+                if (data.args != null) {// args参数其实是一个Intent对象
+                    data.args.setExtrasClassLoader(s.getClassLoader());//将加载服务的类加载器设置进去
                     data.args.prepareToEnterProcess();
                 }
                 int res;
@@ -4485,16 +4486,18 @@ public final class ActivityThread extends ClientTransactionHandler {
         }
     }
 
+    // 停止服务Service
     private void handleStopService(IBinder token) {
         Service s = mServices.remove(token);
         if (s != null) {
             try {
-                if (localLOGV) Slog.v(TAG, "Destroying service " + s);
-                s.onDestroy();
-                s.detachAndCleanUp();
+                s.onDestroy();// Service服务的onDestroy()方法
+                s.detachAndCleanUp();// 清理任何引用以避免泄漏
                 Context context = s.getBaseContext();
                 if (context instanceof ContextImpl) {
                     final String who = s.getClassName();
+                    // 其实该方法是调用前面的L3402行的scheduleContextCleanup(ContextImpl context, String who, String what)方法
+                    // 最终还是调用Handler发生消息清空该服务的信息
                     ((ContextImpl) context).scheduleFinalCleanup(who, "Service");
                 }
                 QueuedWork.waitToFinish();
@@ -4507,40 +4510,28 @@ public final class ActivityThread extends ClientTransactionHandler {
                 if (!mInstrumentation.onException(s, e)) {
                     throw new RuntimeException("Unable to stop service " + s + ": " + e.toString(), e);
                 }
-                Slog.i(TAG, "handleStopService: exception for " + token, e);
             }
         } else {
             Slog.i(TAG, "handleStopService: token=" + token + " not found.");
         }
-        //Slog.i(TAG, "Running services: " + mServices);
     }
 
     /**
-     * Resume the activity.
+     * Resume the activity.对应Activity的resume生命周期。在L4590行handleResumeActivity()方法的L4595行调用
      *
-     * @param token             Target activity token.
-     * @param finalStateRequest Flag indicating if this is part of final state resolution for a
-     *                          transaction.
-     * @param reason            Reason for performing the action.
+     * @param token             Target activity token.用于通信
+     * @param finalStateRequest Flag indicating if this is part of final state resolution for a transaction.
+     *                          如果这是交易的最终状态决议的一部分，那么Flag就作为一个指示标记。
+     * @param reason            Reason for performing the action.执行该操作/活动的一个原因/区分标识
      * @return The {@link ActivityClientRecord} that was resumed, {@code null} otherwise.
      */
     @VisibleForTesting
     public ActivityClientRecord performResumeActivity(IBinder token, boolean finalStateRequest, String reason) {
         final ActivityClientRecord r = mActivities.get(token);
-        if (r == null || r.activity.mFinished) {
+        if (r == null || r.activity.mFinished) {//表示该Activity已经被finished掉了不存在了
             return null;
         }
-        if (r.getLifecycleState() == ON_RESUME) {
-            if (!finalStateRequest) {
-                final RuntimeException e = new IllegalStateException("Trying to resume activity which is already resumed");
-                Slog.e(TAG, e.getMessage(), e);
-                Slog.e(TAG, r.getStateString());
-                // TODO(lifecycler): A double resume request is possible when an activity
-                // receives two consequent transactions with relaunch requests and "resumed"
-                // final state requests and the second relaunch is omitted. We still try to
-                // handle two resume requests for the final state. For cases other than this
-                // one, we don't expect it to happen.
-            }
+        if (r.getLifecycleState() == ON_RESUME) {//表示该Activity当前正处于ON_RESUME这个生命周期，没必要处理
             return null;
         }
         if (finalStateRequest) {
@@ -4549,22 +4540,25 @@ public final class ActivityThread extends ClientTransactionHandler {
         }
         try {
             r.activity.onStateNotSaved();
-            r.activity.mFragments.noteStateNotSaved();
+            r.activity.mFragments.noteStateNotSaved();// Fragment这时候还不处理
             checkAndBlockForNetworkAccess();
             if (r.pendingIntents != null) {
-                deliverNewIntents(r, r.pendingIntents);
+                deliverNewIntents(r, r.pendingIntents);// 详见L3806行的deliverNewIntents()分析
                 r.pendingIntents = null;
             }
             if (r.pendingResults != null) {
+                // 该方法的重点是L5077这行代码：调用Activity的dispatchActivityResult()方法，
+                // 内部重点处理onActivityResult()方法，也就是Activity的带参返回等回调问题
                 deliverResults(r, r.pendingResults, reason);
                 r.pendingResults = null;
             }
+            //其实对应的就是Activity的performResume()方法，也是Activity的onResume生命周期
             r.activity.performResume(r.startsNotResumed, reason);
-
             r.state = null;
             r.persistentState = null;
-            r.setState(ON_RESUME);
-
+            r.setState(ON_RESUME);// 在ActivityClientRecord里面给该Activity标记他的生命周期状态
+            // 如果自上次报告以来其顶部恢复状态发生变化(也就是如果这个Activity所在的栈的栈顶状态发生了变化)，则调用 onTopResumedActivityChanged(boolean)。
+            // 最终调用Activity的onTopResumedActivityChanged()方法：当活动获得或失去系统中的顶部恢复位置时调用。
             reportTopResumedActivityChanged(r, r.isTopResumedActivity, "topWhenResuming");
         } catch (Exception e) {
             if (!mInstrumentation.onException(r.activity, e)) {
@@ -4574,21 +4568,25 @@ public final class ActivityThread extends ClientTransactionHandler {
         return r;
     }
 
+    // 清理窗口，在handleResumeActivity()和handleDestroyActivity()方法里面调用，对应这Activity的Resume和Destroy生命周期。
     static final void cleanUpPendingRemoveWindows(ActivityClientRecord r, boolean force) {
         if (r.mPreserveWindow && !force) {
             return;
         }
         if (r.mPendingRemoveWindow != null) {
+            // 移除Activity的DecorView根布局
             r.mPendingRemoveWindowManager.removeViewImmediate(r.mPendingRemoveWindow.getDecorView());
             IBinder wtoken = r.mPendingRemoveWindow.getDecorView().getWindowToken();
             if (wtoken != null) {
+                // 关闭窗口：root(ViewRootImpl).getImeFocusController().onWindowDismissed();
                 WindowManagerGlobal.getInstance().closeAll(wtoken, r.activity.getClass().getName(), "Activity");
             }
         }
-        r.mPendingRemoveWindow = null;
-        r.mPendingRemoveWindowManager = null;
+        r.mPendingRemoveWindow = null;//清空窗口Window
+        r.mPendingRemoveWindowManager = null;//清空窗口管理器WindowManager
     }
 
+    // 对应Activity的resume生命周期。
     @Override
     public void handleResumeActivity(IBinder token, boolean finalStateRequest, boolean isForward, String reason) {
         // If we are getting ready to gc after going to the background, well we are back active so skip it.
@@ -4596,81 +4594,91 @@ public final class ActivityThread extends ClientTransactionHandler {
         mSomeActivitiesChanged = true;
 
         // TODO Push resumeArgs into the activity for consideration
+        // TODO 发送activity持续运行所需要的参数；将resumeArgs推入活动以供考虑
         final ActivityClientRecord r = performResumeActivity(token, finalStateRequest, reason);
-        if (r == null) {
+        if (r == null) {// 从performResumeActivity()获得的ActivityClientRecord对象不存在，表示对应的Activity已经不存在了，可以直接跳过任何后续行动。
             // We didn't actually resume the activity, so skipping any follow-up actions.
+            // 实际上并没有恢复活动，所以跳过了任何后续行动。
             return;
         }
         if (mActivitiesToBeDestroyed.containsKey(token)) {
-            // Although the activity is resumed, it is going to be destroyed. So the following
-            // UI operations are unnecessary and also prevents exception because its token may
-            // be gone that window manager cannot recognize it. All necessary cleanup actions
-            // performed below will be done while handling destruction.
+            // Although the activity is resumed, it is going to be destroyed. So the following UI operations are unnecessary
+            // and also prevents exception because its token may be gone that window manager cannot recognize it. All necessary
+            // cleanup actions performed below will be done while handling destruction.
+            // 尽管这个Activity是一直在运行的，但是他即将被销毁。因此接下来的UI操作都是不必要的，并且还要防止异常，因为他的token参数有可能消失，
+            // 以至于窗口管理器无法识别它。在处理销毁时，以下所有必要的清理操作都将会执行
             return;
         }
 
         final Activity a = r.activity;
-
+        //
         final int forwardBit = isForward ? WindowManager.LayoutParams.SOFT_INPUT_IS_FORWARD_NAVIGATION : 0;
 
-        // If the window hasn't yet been added to the window manager,
-        // and this guy didn't finish itself or start another activity,
+        // If the window hasn't yet been added to the window manager, and this guy didn't finish itself or start another activity,
         // then go ahead and add the window.
+        // 如果这个窗口还没有添加到窗口管理器里面去，并且他也没有finish他自己或者启动另一个Activity活动，那么就继续执行并添加到窗口里面去。
         boolean willBeVisible = !a.mStartedActivity;
         if (!willBeVisible) {
-            try {
+            try {// 如果willBeVisible=false，那就隐藏该Activity。
                 willBeVisible = ActivityTaskManager.getService().willActivityBeVisible(a.getActivityToken());
             } catch (RemoteException e) {
                 throw e.rethrowFromSystemServer();
             }
         }
+        //Activity对应的window窗口为null，Activity没有被finish掉并且可见
         if (r.window == null && !a.mFinished && willBeVisible) {
-            r.window = r.activity.getWindow();
-            View decor = r.window.getDecorView();
-            decor.setVisibility(View.INVISIBLE);
-            ViewManager wm = a.getWindowManager();
+            r.window = r.activity.getWindow();//获取窗口
+            View decor = r.window.getDecorView();//获取根布局DecorView
+            decor.setVisibility(View.INVISIBLE);//先暂时设置根布局DecorView为INVISIBLE类型的不可见
+            ViewManager wm = a.getWindowManager();//获取ViewManager窗口管理器
             WindowManager.LayoutParams l = r.window.getAttributes();
+            // 将从ActivityClientRecord记录里面获取到的根布局DecorView赋值给Activity。
+            // 从这里我们可以得知：Activity本身与根布局DecorView关联起来是发生在onResume()这一步
             a.mDecor = decor;
             l.type = WindowManager.LayoutParams.TYPE_BASE_APPLICATION;
-            l.softInputMode |= forwardBit;
+            l.softInputMode |= forwardBit;// 键盘⌨状态
             if (r.mPreserveWindow) {
-                a.mWindowAdded = true;
+                a.mWindowAdded = true;//添加Window窗口？是
                 r.mPreserveWindow = false;
-                // Normally the ViewRoot sets up callbacks with the Activity
-                // in addView->ViewRootImpl#setView. If we are instead reusing
-                // the decor view we have to notify the view root that the
-                // callbacks may have changed.
+                // Normally the ViewRoot sets up callbacks with the Activity in addView->ViewRootImpl#setView. If we are
+                // instead reusing the decor view we have to notify the view root that the callbacks may have changed.
+                // 通常ViewRoot给Activity设置回调是在addView()方法里面（addView()方法里面再调用ViewRootImpl.java的setView()方法）。
+                // 如果我们替换正在运行中的根布局DecorView视图，那么我们必须通知根布局DecorView视图回调已经发生变化(需要刷新)
                 ViewRootImpl impl = decor.getViewRootImpl();
                 if (impl != null) {
+                    // ViewRootImpl里面notifyChildRebuilt()方法的注释：通知我们我们的孩子已经重建，在窗口保存操作之后。 在这些情况下，
+                    // 我们保持相同的 DecorView，但控制它的活动是一个不同的实例，我们需要更新我们的回调。总结：通知ViewRootImpl，重建子View视图
                     impl.notifyChildRebuilt();
                 }
             }
-            if (a.mVisibleFromClient) {
-                if (!a.mWindowAdded) {
-                    a.mWindowAdded = true;
-                    wm.addView(decor, l);
+            if (a.mVisibleFromClient) {// Activity在Client客户端是否可见
+                if (!a.mWindowAdded) {//尚未确定是否添加Window窗口
+                    a.mWindowAdded = true;//添加Window窗口？是
+                    wm.addView(decor, l);//添加根布局DecorView视图和WindowManager.LayoutParams布局参数到ViewManager窗口管理器
                 } else {
-                    // The activity will get a callback for this {@link LayoutParams} change
-                    // earlier. However, at that time the decor will not be set (this is set
-                    // in this method), so no action will be taken. This call ensures the
-                    // callback occurs with the decor set.
+                    // The activity will get a callback for this {@link LayoutParams} change earlier. However, at that
+                    // time the decor will not be set (this is set in this method), so no action will be taken. This
+                    // call ensures the callback occurs with the decor set.
+                    // Activity 将提前收到此 {@link LayoutParams} 更改的回调。但是，那时根布局DecorView视图不会设置装饰（在此方法中设置），
+                    // 因此不会执行任何操作。此调用确保回调与装饰集一起发生。
                     a.onWindowAttributesChanged(l);
                 }
             }
 
-            // If the window has already been added, but during resume
-            // we started another activity, then don't yet make the
-            // window visible.
+            // If the window has already been added, but during resume we started another activity,
+            // then don't yet make the window visible.
+            // 如果这个window窗口已经被添加，但是在运行期间我们启动了另一个Activity窗口，那么就让这个window窗口不可见。
         } else if (!willBeVisible) {
-            if (localLOGV) Slog.v(TAG, "Launch " + r + " mStartedActivity set");
             r.hideForNow = true;
         }
 
-        // Get rid of anything left hanging around.
+        // Get rid of anything left hanging around.后续处理
         cleanUpPendingRemoveWindows(r, false /* force */);
 
-        // The window is now visible if it has been added, we are not
-        // simply finishing, and we are not starting another activity.
+        // The window is now visible if it has been added, we are not simply finishing, and we are not starting another activity.
+        // 如果window窗口已经被添加，那么她就是可见的，我们不能简单地finish，也不能立即启动另一个Activity。也就是下面 4 个判断条件：
+        // !r.activity.mFinished：Activity没有被finish；willBeVisible：window窗口已经被添加；
+        // r.activity.mDecor != null：根布局DecorView视图存在；!r.hideForNow：window窗口可见
         if (!r.activity.mFinished && willBeVisible && r.activity.mDecor != null && !r.hideForNow) {
             if (r.newConfig != null) {
                 performConfigurationChangedForActivity(r, r.newConfig);
@@ -4720,19 +4728,22 @@ public final class ActivityThread extends ClientTransactionHandler {
     }
 
     /**
-     * Call {@link Activity#onTopResumedActivityChanged(boolean)} if its top resumed state changed
-     * since the last report.
+     * Call {@link Activity#onTopResumedActivityChanged(boolean)} if its top resumed state changed since the last report.
+     * 如果自上次报告以来其顶部恢复状态发生变化(也就是如果这个Activity所在的栈的栈顶状态发生了变化)，则调用 onTopResumedActivityChanged(boolean)。
      */
     private void reportTopResumedActivityChanged(ActivityClientRecord r, boolean onTop, String reason) {
         if (r.lastReportedTopResumedState != onTop) {
             r.lastReportedTopResumedState = onTop;
+            // 最终调用Activity的 onTopResumedActivityChanged()方法：当活动获得或失去系统中的顶部恢复位置时调用。
+            // 但是这个方式是空实现，具体的逻辑需要由Activity的子类去实现，但只有子类PipMenuActivity具体实现了这个方法，
+            // 其他的子类都没有处理，因此，这个方法并没有太多的功能。
             r.activity.performTopResumedActivityChanged(onTop, reason);
         }
     }
 
     @Override
-    public void handlePauseActivity(IBinder token, boolean finished, boolean userLeaving,
-                                    int configChanges, PendingTransactionActions pendingActions, String reason) {
+    public void handlePauseActivity(IBinder token, boolean finished, boolean userLeaving, int configChanges,
+                                    PendingTransactionActions pendingActions, String reason) {
         ActivityClientRecord r = mActivities.get(token);
         if (r != null) {
             if (userLeaving) {
@@ -5076,10 +5087,13 @@ public final class ActivityThread extends ClientTransactionHandler {
         for (int i = 0; i < N; i++) {
             ResultInfo ri = results.get(i);
             try {
-                if (ri.mData != null) {
+                if (ri.mData != null) {// mData对象就是一个Intent对象
+                    // 往Intent对象对象里面保存一个ClassLoader类加载器
                     ri.mData.setExtrasClassLoader(r.activity.getClassLoader());
-                    ri.mData.prepareToEnterProcess();
+                    ri.mData.prepareToEnterProcess();// 准备进入进程
                 }
+                // dispatchActivityResult()方法内部重点处理onActivityResult()方法，也就是Activity的带参返回等回调问题
+                // 所以这行代码才是deliverResults()方法的核心。
                 r.activity.dispatchActivityResult(ri.mResultWho, ri.mRequestCode, ri.mResultCode, ri.mData, reason);
             } catch (Exception e) {
                 if (!mInstrumentation.onException(r.activity, e)) {
@@ -5195,8 +5209,7 @@ public final class ActivityThread extends ClientTransactionHandler {
     }
 
     @Override
-    public void handleDestroyActivity(IBinder token, boolean finishing, int configChanges,
-                                      boolean getNonConfigInstance, String reason) {
+    public void handleDestroyActivity(IBinder token, boolean finishing, int configChanges, boolean getNonConfigInstance, String reason) {
         ActivityClientRecord r = performDestroyActivity(token, finishing,
                 configChanges, getNonConfigInstance, reason);
         if (r != null) {
@@ -5556,17 +5569,15 @@ public final class ActivityThread extends ClientTransactionHandler {
      * @param newBaseConfig The new configuration to use. This may be augmented with
      *                      {@link ActivityClientRecord#overrideConfig}.
      */
-    private void performConfigurationChangedForActivity(ActivityClientRecord r,
-                                                        Configuration newBaseConfig) {
-        performConfigurationChangedForActivity(r, newBaseConfig, r.activity.getDisplayId(),
-                false /* movedToDifferentDisplay */);
+    private void performConfigurationChangedForActivity(ActivityClientRecord r, Configuration newBaseConfig) {
+        performConfigurationChangedForActivity(r, newBaseConfig, r.activity.getDisplayId(), false /* movedToDifferentDisplay */);
     }
 
     /**
-     * Updates the configuration for an Activity. The ActivityClientRecord's
-     * {@link ActivityClientRecord#overrideConfig} is used to compute the final Configuration for
-     * that Activity. {@link ActivityClientRecord#tmpConfig} is used as a temporary for delivering
-     * the updated Configuration.
+     * Updates the configuration for an Activity. The ActivityClientRecord's {@link ActivityClientRecord#overrideConfig}
+     * is used to compute the final Configuration for that Activity. {@link ActivityClientRecord#tmpConfig} is used as
+     * a temporary for delivering the updated Configuration.
+     *
      *
      * @param r                       ActivityClientRecord representing the Activity.
      * @param newBaseConfig           The new configuration to use. This may be augmented with
