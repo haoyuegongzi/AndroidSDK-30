@@ -4729,7 +4729,8 @@ public final class ActivityThread extends ClientTransactionHandler {
 
     /**
      * Call {@link Activity#onTopResumedActivityChanged(boolean)} if its top resumed state changed since the last report.
-     * 如果自上次报告以来其顶部恢复状态发生变化(也就是如果这个Activity所在的栈的栈顶状态发生了变化)，则调用 onTopResumedActivityChanged(boolean)。
+     * 如果自上次报告以来其顶部恢复状态发生变化(也就是如果这个Activity所在的栈的栈顶状态发生了变化)，则调用Activity的
+     * onTopResumedActivityChanged(boolean)方法。
      */
     private void reportTopResumedActivityChanged(ActivityClientRecord r, boolean onTop, String reason) {
         if (r.lastReportedTopResumedState != onTop) {
@@ -4741,9 +4742,12 @@ public final class ActivityThread extends ClientTransactionHandler {
         }
     }
 
+    // 处理 Activity暂停时 的逻辑。
     @Override
     public void handlePauseActivity(IBinder token, boolean finished, boolean userLeaving, int configChanges,
                                     PendingTransactionActions pendingActions, String reason) {
+        // 通过token(IBinder)对象获取到ActivityClientRecord对象，
+        // ActivityClientRecord对象内部封装了IBinder、Activity、Window等对象
         ActivityClientRecord r = mActivities.get(token);
         if (r != null) {
             if (userLeaving) {
@@ -4753,7 +4757,7 @@ public final class ActivityThread extends ClientTransactionHandler {
             r.activity.mConfigChangeFlags |= configChanges;
             performPauseActivity(r, finished, reason, pendingActions);
 
-            // Make sure any pending writes are now committed.
+            // Make sure any pending writes are now committed.确保当前所有的写入操作都被提交执行了
             if (r.isPreHoneycomb()) {
                 QueuedWork.waitToFinish();
             }
@@ -4773,40 +4777,43 @@ public final class ActivityThread extends ClientTransactionHandler {
     }
 
     /**
-     * Pause the activity.
-     *
+     * Pause the activity.暂停 Activity
+     *          为pre-Honeycomb应用，保存实例状态，否则为空。
      * @return Saved instance state for pre-Honeycomb apps if it was saved, {@code null} otherwise.
      */
     private Bundle performPauseActivity(ActivityClientRecord r, boolean finished, String reason,
                                         PendingTransactionActions pendingActions) {
+        // 如果已经paused暂停了，那么就判断当前Activity是否已经Finished，如果提交Finished，那么返回一个空的Bundle对象
         if (r.paused) {
             if (r.activity.mFinished) {
-                // If we are finishing, we won't call onResume() in certain cases.
-                // So here we likewise don't want to call onPause() if the activity
-                // isn't resumed.
+                // If we are finishing, we won't call onResume() in certain cases. So here we likewise
+                // don't want to call onPause() if the activity isn't resumed.
+                // 如果该Activity正在被finish，我们就不会在他的生命周期中再调用onResume()方法，所以如果这个Activity不再
+                // 持续运行resumed，我们同样地不会调用onPause()方法，
                 return null;
             }
         }
-        if (finished) {
+        if (finished) {// 如果正在finished，那么改变ActivityClientRecord对象中该Activity的mFinished表示状态。
             r.activity.mFinished = true;
         }
-
+        // 正常流程中，Pre-Honeycomb应用总是会在暂停pausing他们之前，先保存他们的状态
         // Pre-Honeycomb apps always save their state before pausing
         final boolean shouldSaveState = !r.activity.mFinished && r.isPreHoneycomb();
         if (shouldSaveState) {
-            callActivityOnSaveInstanceState(r);
+            callActivityOnSaveInstanceState(r);// L5512 保存Activity的实例的状态
         }
-
+        // 如果有必要，执行Pause暂停Activity方法。
         performPauseActivityIfNeeded(r, reason);
 
-        // Notify any outstanding on paused listeners
+        // Notify any outstanding on paused listeners：通知暂停监听器上的任何未完成情况
         ArrayList<OnActivityPausedListener> listeners;
         synchronized (mOnPauseListeners) {
+            // 在暂停的mOnPauseListeners监听列表中移除当前ActivityClientRecord客户端对象中的Activity
             listeners = mOnPauseListeners.remove(r.activity);
         }
         int size = (listeners != null ? listeners.size() : 0);
         for (int i = 0; i < size; i++) {
-            listeners.get(i).onPaused(r.activity);
+            listeners.get(i).onPaused(r.activity);// 将要暂停的Activity添加到listeners列表，暂存
         }
 
         final Bundle oldState = pendingActions != null ? pendingActions.getOldState() : null;
@@ -4816,21 +4823,24 @@ public final class ActivityThread extends ClientTransactionHandler {
             // pausing, so we can not have them save their state when restarting from a paused
             // state. For HC and later, we want to (and can) let the state be saved as the
             // normal part of stopping the activity.
+            // 判断当前系统版本是否在 11 之上；True：当前系统版本小于＜11；false：放弃系统版本不低于11；就目前而言，
+            // r.state = oldState这行代码不会在执行了，因为目前AndroidSDK版本已经到了30了。
             if (r.isPreHoneycomb()) {
                 r.state = oldState;
             }
         }
-        return shouldSaveState ? r.state : null;
+        return shouldSaveState ? r.state : null;// 返回当前ActivityClientRecord客户端对象中的Bundle对象。
     }
 
     private void performPauseActivityIfNeeded(ActivityClientRecord r, String reason) {
-        if (r.paused) {
+        if (r.paused) {// 傻逼，你已经暂停paused了
             // You are already paused silly...
             return;
         }
 
         // Always reporting top resumed position loss when pausing an activity. If necessary, it
-        // will be restored in performResumeActivity().
+        // will be restored in performResumeActivity().当要暂停一个Activity时，总是报告其失去顶部位置，如果有必要，
+        // 他会在performResumeActivity()方法中恢复。
         reportTopResumedActivityChanged(r, false /* onTop */, "pausing");
 
         try {
@@ -4846,11 +4856,13 @@ public final class ActivityThread extends ClientTransactionHandler {
                 throw new RuntimeException("Unable to pause activity " + safeToComponentShortString(r.intent) + ": " + e.toString(), e);
             }
         }
-        r.setState(ON_PAUSE);
+        r.setState(ON_PAUSE);//设置更新ActivityClientRecord对应的Activity的生命周期状态
     }
 
     /**
-     * Called from {@link LocalActivityManager}.
+     * Called from {@link LocalActivityManager}.执行停止Activity，该方法在LocalActivityManager.java的moveToState()方法里面被调用，
+     * 参数saveState对应的值是：false,
+     * 参数reason对应的值是："moveToState-STARTED"、"moveToState-RESUMED"
      */
     @UnsupportedAppUsage
     final void performStopActivity(IBinder token, boolean saveState, String reason) {
@@ -4864,11 +4876,9 @@ public final class ActivityThread extends ClientTransactionHandler {
         public int stableCount;
         public int unstableCount;
 
-        // When this is set, the stable and unstable ref counts are 0 and
-        // we have a pending operation scheduled to remove the ref count
-        // from the activity manager.  On the activity manager we are still
-        // holding an unstable ref, though it is not reflected in the counts
-        // here.
+        // When this is set, the stable and unstable ref counts are 0 and we have a pending operation scheduled
+        // toremove the ref count from the activity manager.  On the activity manager we are still holding an
+        // unstable ref, though it is not reflected in the counts here.
         public boolean removePending;
 
         ProviderRefCount(ContentProviderHolder inHolder, ProviderClientRecord inClient, int sCount, int uCount) {
@@ -4880,32 +4890,33 @@ public final class ActivityThread extends ClientTransactionHandler {
     }
 
     /**
-     * Core implementation of stopping an activity.
+     * Core implementation of stopping an activity.该方法是停止一个Activity的核心实现
      *
-     * @param r                 Target activity client record.
-     * @param info              Action that will report activity stop to server.
-     * @param saveState         Flag indicating whether the activity state should be saved.
+     * @param r                 Target activity client record.目标Activity客户端
+     * @param info              Action that will report activity stop to server.将Activity停止活动报告给Server服务端的活动
+     * @param saveState         Flag indicating whether the activity state should be saved.是否保存Activity状态的指示器
      * @param finalStateRequest Flag indicating if this call is handling final lifecycle state
-     *                          request for a transaction.
-     * @param reason            Reason for performing this operation.
+     *                          request for a transaction.指示此调用是否正在处理事务的最终生命周期状态请求的标志。
+     * @param reason            Reason for performing this operation.执行这个操作的原因
      */
     private void performStopActivityInner(ActivityClientRecord r, StopInfo info,
                                           boolean saveState, boolean finalStateRequest, String reason) {
         if (r != null) {
             if (r.stopped) {
                 if (r.activity.mFinished) {
-                    // If we are finishing, we won't call onResume() in certain
-                    // cases.  So here we likewise don't want to call onStop()
-                    // if the activity isn't resumed.
+                    // 如果我们正在finishing，那么我们不会再在生命周期路线上调用onResume()，同样的，如果这个Activity没有处于resumed运行
+                    // 状态，我们也不会调用onStop()————简单来说就是：我本就正在执行finish操作，何苦也不能再去调用onResume()或者onStop()
+                    // If we are finishing, we won't call onResume() in certain cases. So here we likewise don't want to
+                    // call onStop() if the activity isn't resumed.
                     return;
                 }
             }
-            // One must first be paused before stopped...
+            // One must first be paused before stopped...执行stopped之前，必须首先确保该Activity已经paused
             performPauseActivityIfNeeded(r, reason);
             if (info != null) {
                 try {
-                    // First create a thumbnail for the activity... For now, don't create the thumbnail here;
-                    // we are doing that by doing a screen snapshot.
+                    // First create a thumbnail for the activity... For now, don't create the thumbnail here; we are
+                    // doing that by doing a screen snapshot.首先为该Activity创建一个缩略图，我们通过屏幕快照来实现这一点。
                     info.setDescription(r.activity.onCreateDescription());
                 } catch (Exception e) {
                     if (!mInstrumentation.onException(r.activity, e)) {
@@ -4919,21 +4930,27 @@ public final class ActivityThread extends ClientTransactionHandler {
     }
 
     /**
-     * Calls {@link Activity#onStop()} and {@link Activity#onSaveInstanceState(Bundle)}, and updates
-     * the client record's state.
-     * All calls to stop an activity must be done through this method to make sure that
-     * {@link Activity#onSaveInstanceState(Bundle)} is also executed in the same call.
+     * Calls {@link Activity#onStop()} and {@link Activity#onSaveInstanceState(Bundle)}, and updates the client record's state.
+     * All calls to stop an activity must be done through this method to make sure that {@link Activity#onSaveInstanceState(Bundle)}
+     * is also executed in the same call.
+     * 调用Activity的onStop()和 onSaveInstanceState()方法，然后更新ActivityClientRecord客户端的状态，所有的停止一个Activity的调用都必须通过
+     * callActivityOnStop()方法以确保onSaveInstanceState()方法同时被执行。
      */
     private void callActivityOnStop(ActivityClientRecord r, boolean saveState, String reason) {
         // Before P onSaveInstanceState was called before onStop, starting with P it's
         // called after. Before Honeycomb state was always saved before onPause.
+        // 在SDK P版本之前，onSaveInstanceState()方法是在onStop()之前调用的，从SDK P版本开始onSaveInstanceState()方法就在onStop()
+        // 之后调用。之前Honeycomb的状态state都一直是在onPause()之前保存的。
+        // 是否需要保存；
         final boolean shouldSaveState = saveState && !r.activity.mFinished && r.state == null && !r.isPreHoneycomb();
-        final boolean isPreP = r.isPreP();
+        final boolean isPreP = r.isPreP();//判断当前系统版本是否在P版本及P版本之上；True：P版本之下，；false：P版本之上。
         if (shouldSaveState && isPreP) {
+            //如果需要保存状态，而且当前系统版本小于P，先调用callActivityOnSaveInstanceState()方法保存InstanceState状态，再执行其他操作
             callActivityOnSaveInstanceState(r);
         }
 
         try {
+            // 执行Activity的performStop()方法，主要处理Window相关的逻辑
             r.activity.performStop(r.mPreserveWindow, reason);
         } catch (SuperNotCalledException e) {
             throw e;
@@ -4943,7 +4960,8 @@ public final class ActivityThread extends ClientTransactionHandler {
                         "Unable to stop activity " + r.intent.getComponent().toShortString() + ": " + e.toString(), e);
             }
         }
-        r.setState(ON_STOP);
+        r.setState(ON_STOP);// 将ActivityClientRecord客户端的状态设置为ON_STOP停止状态
+        //  需要保存Activity的状态，且当前系统版本不低于P，那么在Stop之后执行保存InstanceState状态
         if (shouldSaveState && !isPreP) {
             callActivityOnSaveInstanceState(r);
         }
@@ -4986,6 +5004,7 @@ public final class ActivityThread extends ClientTransactionHandler {
         }
     }
 
+    // 处理Activity的Stop
     @Override
     public void handleStopActivity(IBinder token, int configChanges,
                                    PendingTransactionActions pendingActions, boolean finalStateRequest, String reason) {
@@ -4993,12 +5012,13 @@ public final class ActivityThread extends ClientTransactionHandler {
         r.activity.mConfigChangeFlags |= configChanges;
 
         final StopInfo stopInfo = new StopInfo();
+        // 该方法是停止一个Activity的核心实现
         performStopActivityInner(r, stopInfo, true /* saveState */, finalStateRequest, reason);
-
+        // 更新当前Activity的Window的可见性
         updateVisibility(r, false);
 
         // Make sure any pending writes are now committed.
-        if (!r.isPreHoneycomb()) {
+        if (!r.isPreHoneycomb()) {// 如果当前系统版本不低于11，
             QueuedWork.waitToFinish();
         }
 
@@ -5010,15 +5030,18 @@ public final class ActivityThread extends ClientTransactionHandler {
     }
 
     /**
-     * Schedule the call to tell the activity manager we have stopped.  We don't do this immediately,
-     * because we want to have a chance for any other pending work (in particular memory trim requests)
-     * to complete before you tell the activity manager to proceed and allow us to go fully into the background.
+     * Schedule the call to tell the activity manager we have stopped. We don't do this immediately, because we want to
+     * have a chance for any other pending work (in particular memory trim requests) to complete before you tell the
+     * activity manager to proceed and allow us to go fully into the background.
+     * 执行调用该方法，通知Activity的管理者，我们已经停止该Activity了，但是我们不会立即执行，因为我们希望在你通知Activity管理者manager
+     * 之前当前Activity中正在执行的任务都有机会执行完毕，并且允许我们完全地转入到后台执行。
      */
     @Override
     public void reportStop(PendingTransactionActions pendingActions) {
-        mH.post(pendingActions.getStopInfo());
+        mH.post(pendingActions.getStopInfo()); // mH：自定义的继承自Handler的一个Handler
     }
 
+    // 执行Activity重启操作
     @Override
     public void performRestartActivity(IBinder token, boolean start) {
         ActivityClientRecord r = mActivities.get(token);
@@ -5504,6 +5527,7 @@ public final class ActivityThread extends ClientTransactionHandler {
         }
     }
 
+    // 调用onSaveInstanceState()保存Activity的Instance状态
     private void callActivityOnSaveInstanceState(ActivityClientRecord r) {
         r.state = new Bundle();
         r.state.setAllowFds(false);
