@@ -5045,9 +5045,9 @@ public final class ActivityThread extends ClientTransactionHandler {
     @Override
     public void performRestartActivity(IBinder token, boolean start) {
         ActivityClientRecord r = mActivities.get(token);
-        if (r.stopped) {
+        if (r.stopped) {// 如果ActivityClientRecord对应的Activity已经stop了，则执行Restart()方法，
             r.activity.performRestart(start, "performRestartActivity");
-            if (start) {
+            if (start) {// 如果该Activity处于start运行状态，则标记该Activity的状态。
                 r.setState(ON_START);
             }
         }
@@ -5061,7 +5061,7 @@ public final class ActivityThread extends ClientTransactionHandler {
     }
 
     private void onCoreSettingsChange() {
-        if (updateDebugViewAttributeState()) {
+        if (updateDebugViewAttributeState()) {// 如果View的属性发生了改变，那么就更新并重新加载。
             // request all activities to relaunch for the changes to take place
             relaunchAllActivities(false /* preserveWindows */);
         }
@@ -5080,18 +5080,32 @@ public final class ActivityThread extends ClientTransactionHandler {
         return previousState != View.sDebugViewAttributes;
     }
 
+    // 重新加载所有的Activity。
     private void relaunchAllActivities(boolean preserveWindows) {
         for (Map.Entry<IBinder, ActivityClientRecord> entry : mActivities.entrySet()) {
             final ActivityClientRecord r = entry.getValue();
             if (!r.activity.mFinished) {
+                // 在onCoreSettingsChange()方法里面，参数preserveWindows传的是false，因此if语句内部不会执行。
                 if (preserveWindows && r.window != null) {
                     r.mPreserveWindow = true;
                 }
-                scheduleRelaunchActivity(entry.getKey());
+                scheduleRelaunchActivity(entry.getKey());// entry.getKey()对应的是一个IBinder
             }
         }
     }
 
+    /**
+     * Post a message to relaunch the activity. We do this instead of launching it immediately,
+     * because this will destroy the activity from which it was called and interfere with the
+     * lifecycle changes it was going through before. We need to make sure that we have finished
+     * handling current transaction item before relaunching the activity.
+     */
+    void scheduleRelaunchActivity(IBinder token) {
+        mH.removeMessages(H.RELAUNCH_ACTIVITY, token);// 移除RELAUNCH_ACTIVITY对应的任务
+        sendMessage(H.RELAUNCH_ACTIVITY, token);// 重新发送一个任务，在handleMessage(Message msg)房里里面执行
+    }
+
+    // 在handleMessage(Message msg)房里里面执行
     private void handleUpdatePackageCompatibilityInfo(UpdateCompatibilityData data) {
         LoadedApk apk = peekPackageInfo(data.pkg, false);
         if (apk != null) {
@@ -5105,6 +5119,7 @@ public final class ActivityThread extends ClientTransactionHandler {
         WindowManagerGlobal.getInstance().reportNewConfiguration(mConfiguration);
     }
 
+    // L4529：performResumeActivity()、L5174：handleSendResult()方法里面调用
     private void deliverResults(ActivityClientRecord r, List<ResultInfo> results, String reason) {
         final int N = results.size();
         for (int i = 0; i < N; i++) {
@@ -5116,7 +5131,7 @@ public final class ActivityThread extends ClientTransactionHandler {
                     ri.mData.prepareToEnterProcess();// 准备进入进程
                 }
                 // dispatchActivityResult()方法内部重点处理onActivityResult()方法，也就是Activity的带参返回等回调问题
-                // 所以这行代码才是deliverResults()方法的核心。
+                // 所以这行代码才是deliverResults()方法的核心。dispatch：分发，分派；综合起来就是：分发Activity的Result回调
                 r.activity.dispatchActivityResult(ri.mResultWho, ri.mRequestCode, ri.mResultCode, ri.mData, reason);
             } catch (Exception e) {
                 if (!mInstrumentation.onException(r.activity, e)) {
@@ -5131,17 +5146,20 @@ public final class ActivityThread extends ClientTransactionHandler {
     public void handleSendResult(IBinder token, List<ResultInfo> results, String reason) {
         ActivityClientRecord r = mActivities.get(token);
         if (r != null) {
+            // 后面用到resumed，都是要求resumed = true，因此，这里就要去r.paused = false，也就是Activity不是处于paused状态
             final boolean resumed = !r.paused;
+            // Activity秘钥被Finish，DecorView根布局视图存在，现在被隐藏了（隐藏原因：下面注释有解释），且Activity不是处于paused状态
             if (!r.activity.mFinished && r.activity.mDecor != null && r.hideForNow && resumed) {
-                // We had hidden the activity because it started another one...  we have gotten a result back and
-                // we are not paused, so make sure our window is visible.
+                // We had hidden the activity because it started another one...  we have gotten a result back and we are not paused,
+                // so make sure our window is visible.我们会隐藏这个Activity，因为这时候已经开始启动另一个Activity了，要让另一个尽快的可见，
+                // 我们已经拿到返回结果，并且当前Activity还没有paused，所以要确保我们的Window可见。
                 updateVisibility(r, true);
             }
             if (resumed) {
                 try {
                     // Now we are idle.
                     r.activity.mCalled = false;
-                    mInstrumentation.callActivityOnPause(r.activity);
+                    mInstrumentation.callActivityOnPause(r.activity);// 执行Activity的pause方法/生命周期
                     if (!r.activity.mCalled) {
                         throw new SuperNotCalledException(
                                 "Activity " + r.intent.getComponent().toShortString() + " did not call through to super.onPause()");
@@ -5156,8 +5174,9 @@ public final class ActivityThread extends ClientTransactionHandler {
                 }
             }
             checkAndBlockForNetworkAccess();
-            deliverResults(r, results, reason);
+            deliverResults(r, results, reason);//处理带参跳转——带参返回的情况。r.activity.dispatchActivityResult()这一行代码是核心
             if (resumed) {
+                //Activity走Resume生命周期，内部会调用performRestart()方法，执行Restart()生命周期
                 r.activity.performResume(false, reason);
             }
         }
@@ -5431,17 +5450,6 @@ public final class ActivityThread extends ClientTransactionHandler {
             // Only report a successful relaunch to WindowManager.
             pendingActions.setReportRelaunchToWindowManager(true);
         }
-    }
-
-    /**
-     * Post a message to relaunch the activity. We do this instead of launching it immediately,
-     * because this will destroy the activity from which it was called and interfere with the
-     * lifecycle changes it was going through before. We need to make sure that we have finished
-     * handling current transaction item before relaunching the activity.
-     */
-    void scheduleRelaunchActivity(IBinder token) {
-        mH.removeMessages(H.RELAUNCH_ACTIVITY, token);
-        sendMessage(H.RELAUNCH_ACTIVITY, token);
     }
 
     /**
