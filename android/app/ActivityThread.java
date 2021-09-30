@@ -5173,7 +5173,7 @@ public final class ActivityThread extends ClientTransactionHandler {
                     }
                 }
             }
-            checkAndBlockForNetworkAccess();
+            checkAndBlockForNetworkAccess();// 检查并锁定网络访问权限
             deliverResults(r, results, reason);//处理带参跳转——带参返回的情况。r.activity.dispatchActivityResult()这一行代码是核心
             if (resumed) {
                 //Activity走Resume生命周期，内部会调用performRestart()方法，执行Restart()生命周期
@@ -5183,19 +5183,19 @@ public final class ActivityThread extends ClientTransactionHandler {
     }
 
     /**
-     * Core implementation of activity destroy call.
+     * Core implementation of activity destroy call.activity被销毁destroy回收的核心实现
      */
     ActivityClientRecord performDestroyActivity(IBinder token, boolean finishing,
                                                 int configChanges, boolean getNonConfigInstance, String reason) {
         ActivityClientRecord r = mActivities.get(token);
         Class<? extends Activity> activityClass = null;
         if (r != null) {
-            activityClass = r.activity.getClass();
+            activityClass = r.activity.getClass();// 获取到Activity的类名及路径
             r.activity.mConfigChangeFlags |= configChanges;
-            if (finishing) {
+            if (finishing) {// 如果当前Activity正在finish，那就将当前Activity的Finish标识更改为True
                 r.activity.mFinished = true;
             }
-            performPauseActivityIfNeeded(r, "destroy");
+            performPauseActivityIfNeeded(r, "destroy");// 检验当前Activity是否已经pause暂停。
             if (!r.stopped) {
                 callActivityOnStop(r, false /* saveState */, "destroy");
             }
@@ -5211,7 +5211,7 @@ public final class ActivityThread extends ClientTransactionHandler {
             }
             try {
                 r.activity.mCalled = false;
-                mInstrumentation.callActivityOnDestroy(r.activity);
+                mInstrumentation.callActivityOnDestroy(r.activity);// 执行Activity的.performDestroy()方法
                 if (!r.activity.mCalled) {
                     throw new SuperNotCalledException(
                             "Activity " + safeToComponentShortString(r.intent) + " did not call through to super.onDestroy()");
@@ -5227,14 +5227,14 @@ public final class ActivityThread extends ClientTransactionHandler {
                             "Unable to destroy activity " + safeToComponentShortString(r.intent) + ": " + e.toString(), e);
                 }
             }
-            r.setState(ON_DESTROY);
+            r.setState(ON_DESTROY);//本版本中，setState()房里中，没有处理ON_DESTROY的 case分支
         }
         schedulePurgeIdler();
         // updatePendingActivityConfiguration() reads from mActivities to update
         // ActivityClientRecord which runs in a different thread. Protect modifications to
         // mActivities to avoid race.
         synchronized (mResourcesManager) {
-            mActivities.remove(token);
+            mActivities.remove(token);//当前Activity被destroy后，就从ArrayMap<IBinder, ActivityClientRecord> mActivities中将其移除
         }
         StrictMode.decrementExpectedActivityCount(activityClass);
         return r;
