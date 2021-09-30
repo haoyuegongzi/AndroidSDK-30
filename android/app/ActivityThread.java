@@ -4568,7 +4568,7 @@ public final class ActivityThread extends ClientTransactionHandler {
         return r;
     }
 
-    // 清理窗口，在handleResumeActivity()和handleDestroyActivity()方法里面调用，对应这Activity的Resume和Destroy生命周期。
+    // 清理窗口，在handleResumeActivity()和handleDestroyActivity()方法里面调用，对应着Activity的Resume和Destroy生命周期。
     static final void cleanUpPendingRemoveWindows(ActivityClientRecord r, boolean force) {
         if (r.mPreserveWindow && !force) {
             return;
@@ -5253,55 +5253,70 @@ public final class ActivityThread extends ClientTransactionHandler {
     @Override
     public void handleDestroyActivity(IBinder token, boolean finishing, int configChanges, boolean getNonConfigInstance, String reason) {
         ActivityClientRecord r = performDestroyActivity(token, finishing,
-                configChanges, getNonConfigInstance, reason);
+                configChanges, getNonConfigInstance, reason);// 执行到这里，Activity已经被destroy销毁了。
         if (r != null) {
-            cleanUpPendingRemoveWindows(r, finishing);
-            WindowManager wm = r.activity.getWindowManager();
-            View v = r.activity.mDecor;
+            cleanUpPendingRemoveWindows(r, finishing);// 清理窗口对应的当前Activity窗口信息
+            WindowManager wm = r.activity.getWindowManager();// 获取Activity的窗口管理器
+            View v = r.activity.mDecor;// 获取当前Activity的DecorView根布局。
             if (v != null) {
-                if (r.activity.mVisibleFromServer) {
+                // DecorView根布局 可见的时候：mNumVisibleActivities加1；DecorView根布局 不可见的时候：mNumVisibleActivities减1.
+                if (r.activity.mVisibleFromServer) {// DecorView根布局是否可见跟所在的Activity的状态密切相关
                     mNumVisibleActivities--;
                 }
+                // 从当前Activity的DecorView根布局获取IBinder对象，之所以要在这里提前获取，后面第二个if判断用，
+                // 是因为后面第一个if判断就会清理Window，进而销毁DecorView根布局
                 IBinder wtoken = v.getWindowToken();
-                if (r.activity.mWindowAdded) {
-                    if (r.mPreserveWindow) {
+                if (r.activity.mWindowAdded) {// 当前Activity的DecorView根布局是否添加到Window窗口
+                    // mPreserveWindow：当前Activity的Window是否被保存/缓存
+                    if (r.mPreserveWindow) { // mPreserveWindow：True，被保存，就需要被clear清理
                         // Hold off on removing this until the new activity's window is being added.
+                        // 一直持有该Window窗口，直到有新的Activity的DecorView根布局被添加进来
                         r.mPendingRemoveWindow = r.window;
                         r.mPendingRemoveWindowManager = wm;
                         // We can only keep the part of the view hierarchy that we control, everything else must be removed,
-                        // because it might not be able to behave properly when activity is relaunching.
+                        // because it might not be able to behave properly when activity is relaunching.我们仅仅只能保持我们
+                        // 所能控制的这一层View，其他的所有View都必须被移除清理，因为一个Activity被重新加载运行起来，他就无法正常运作。
+                        // clearContentVie()方法时抽象类Window的方法，由Window的子类PhoneWindow具体实现，其内部调用的是DecorView
+                        // 的clearContentView方法
                         r.window.clearContentView();
-                    } else {
+                    } else {// mPreserveWindow：false，没有被保存，通过WindowManager直接remove
                         wm.removeViewImmediate(v);
                     }
                 }
                 if (wtoken != null && r.mPendingRemoveWindow == null) {
                     WindowManagerGlobal.getInstance().closeAll(wtoken, r.activity.getClass().getName(), "Activity");
                 } else if (r.mPendingRemoveWindow != null) {
-                    // We're preserving only one window, others should be closed so app views will be detached before
-                    // the final tear down. It should be done now because some components (e.g. WebView) rely on detach
-                    // callbacks to perform receiver unregister and other cleanup.
+                    // We're preserving only one window, others should be closed so app views will be detached before the
+                    // final tear down. It should be done now because some components (e.g. WebView) rely on detach callbacks
+                    // to perform receiver unregister and other cleanup.我们仅仅只能保存一个Window，其他的都应该被关闭，以便于应用程序
+                    // 在销毁他之前能够从Window里面拆分出来。现在应该完成了，因为一些组件(例如WebView)依赖于分离回调来执行接收器注销和其他清理
                     WindowManagerGlobal.getInstance().closeAllExceptView(token, v, r.activity.getClass().getName(), "Activity");
                 }
-                r.activity.mDecor = null;
+                r.activity.mDecor = null;// 清空DecorView
             }
-            if (r.mPendingRemoveWindow == null) {
+            if (r.mPendingRemoveWindow == null) {// 待remove移除的Window窗口
                 // If we are delaying the removal of the activity window, then we can't clean up all windows here.
                 // Note that we can't do so later either, which means any windows that aren't closed by the app
                 // will leak.  Well we try to warning them a lot about leaking windows, because that is a bug, so
                 // if they are using this recreate facility then they get to live with leaks.
+                // 如果我们延迟移除Activity的Window窗口，那么这里我们将不能够清理所有的Window窗口。同时要注意，我们也不能延后来处理这个，
+                // 这意味着任何的window窗口都不能被应用关闭，这将导致内存泄漏，我们也发出许多的关于window窗口引发的内存泄漏的警告，因为这是
+                // 一个bug，所以如果他们使用这个重建功能，他们就得忍受泄漏。
                 WindowManagerGlobal.getInstance().closeAll(token, r.activity.getClass().getName(), "Activity");
             }
 
             // Mocked out contexts won't be participating in the normal process lifecycle, but if we're running with a proper
             // ApplicationContext we need to have it tear down things cleanly.
+            // 模拟出来的上下文不会参与到正常的过程生命周期中，但是如果我们使用合适的ApplicationContext运行，我们需要让它干净地分解东西。
             Context c = r.activity.getBaseContext();
             if (c instanceof ContextImpl) {
+                // 最终调用到LoadedApk.java的removeContextRegistrations()方法，作用就是移除Activity的注册信息
                 ((ContextImpl) c).scheduleFinalCleanup(r.activity.getClass().getName(), "Activity");
             }
         }
         if (finishing) {
             try {
+                // 通过ActivityManagerService也就是我们通常说的AMS销毁IBinder对应的Activity。
                 ActivityTaskManager.getService().activityDestroyed(token);
             } catch (RemoteException ex) {
                 throw ex.rethrowFromSystemServer();
@@ -5310,6 +5325,7 @@ public final class ActivityThread extends ClientTransactionHandler {
         mSomeActivitiesChanged = true;
     }
 
+    // Activity的重新 预加载
     @Override
     public ActivityClientRecord prepareRelaunchActivity(IBinder token, List<ResultInfo> pendingResults, List<ReferrerIntent> pendingNewIntents,
                                                         int configChanges, MergedConfiguration config, boolean preserveWindow) {
