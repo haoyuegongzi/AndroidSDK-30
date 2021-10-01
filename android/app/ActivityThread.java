@@ -380,7 +380,7 @@ public final class ActivityThread extends ClientTransactionHandler {
     @UnsupportedAppUsage
     Application mInitialApplication;
     @UnsupportedAppUsage
-    final ArrayList<Application> mAllApplications = new ArrayList<Application>();
+    final ArrayList<Application> mAllApplications = new ArrayList<>();
     /**
      * Bookkeeping of instantiated backup agents indexed first by user id, then by package name.
      * Indexing by user id supports parallel backups across users on system packages as they run in
@@ -5327,8 +5327,10 @@ public final class ActivityThread extends ClientTransactionHandler {
 
     // Activity的重新 预加载
     @Override
-    public ActivityClientRecord prepareRelaunchActivity(IBinder token, List<ResultInfo> pendingResults, List<ReferrerIntent> pendingNewIntents,
-                                                        int configChanges, MergedConfiguration config, boolean preserveWindow) {
+    public ActivityClientRecord prepareRelaunchActivity(IBinder token, List<ResultInfo> pendingResults,
+                                                        List<ReferrerIntent> pendingNewIntents,
+                                                        int configChanges, MergedConfiguration config,
+                                                        boolean preserveWindow) {
         ActivityClientRecord target = null;
         boolean scheduleRelaunch = false;
 
@@ -5374,7 +5376,7 @@ public final class ActivityThread extends ClientTransactionHandler {
     @Override
     public void handleRelaunchActivity(ActivityClientRecord tmp, PendingTransactionActions pendingActions) {
         // If we are getting ready to gc after going to the background, well we are back active so skip it.
-        unscheduleGcIdler();
+        unscheduleGcIdler();// 垃圾回收操作
         mSomeActivitiesChanged = true;
 
         Configuration changedConfig = null;
@@ -5382,6 +5384,7 @@ public final class ActivityThread extends ClientTransactionHandler {
 
         // First: make sure we have the most recent configuration and most recent version of the activity,
         // or skip it if some previous call had taken a more recent version.
+        // 确保我们拥有活动的最新配置和最新版本，或者如果之前的某个调用使用了更近期的版本，则跳过它。
         synchronized (mResourcesManager) {
             int N = mRelaunchingActivities.size();
             IBinder token = tmp.token;
@@ -5408,8 +5411,8 @@ public final class ActivityThread extends ClientTransactionHandler {
         }
 
         if (tmp.createdConfig != null) {
-            // If the activity manager is passing us its current config, assume that is really what
-            // we want regardless of what we may have pending.
+            // If the activity manager is passing us its current config, assume that is really what  we want regardless
+            // of what we may have pending.假设ActivityManager传递给我们它的当前配置，就是我们真正想要的，而不管我们可能有什么挂起。
             if (mConfiguration == null || (tmp.createdConfig.isOtherSeqNewer(mConfiguration) && mConfiguration.diff(tmp.createdConfig) != 0)) {
                 if (changedConfig == null || tmp.createdConfig.isOtherSeqNewer(changedConfig)) {
                     changedConfig = tmp.createdConfig;
@@ -5417,7 +5420,7 @@ public final class ActivityThread extends ClientTransactionHandler {
             }
         }
 
-        // If there was a pending configuration change, execute it first.
+        // If there was a pending configuration change, execute it first.如果这里有一个待处理的configuration配置发生变更，那么瘦小处理它
         if (changedConfig != null) {
             mCurDefaultDisplayDpi = changedConfig.densityDpi;
             updateDefaultDensity();
@@ -5563,27 +5566,28 @@ public final class ActivityThread extends ClientTransactionHandler {
         }
     }
 
-    ArrayList<ComponentCallbacks2> collectComponentCallbacks(
-            boolean allActivities, Configuration newConfig) {
-        ArrayList<ComponentCallbacks2> callbacks = new ArrayList<ComponentCallbacks2>();
+    // 在handleConfigurationChanged()、handleLowMemory()、handleTrimMemory()
+    ArrayList<ComponentCallbacks2> collectComponentCallbacks(boolean allActivities, Configuration newConfig) {
+        ArrayList<ComponentCallbacks2> callbacks = new ArrayList<>();
 
         synchronized (mResourcesManager) {
-            final int NAPP = mAllApplications.size();
+            final int NAPP = mAllApplications.size();// ArrayList<Application>：当前系统在运行的App数量
             for (int i = 0; i < NAPP; i++) {
-                callbacks.add(mAllApplications.get(i));
+                callbacks.add(mAllApplications.get(i));// Application实现了 ComponentCallbacks2 接口
             }
             final int NACT = mActivities.size();
             for (int i = 0; i < NACT; i++) {
-                ActivityClientRecord ar = mActivities.valueAt(i);
+                ActivityClientRecord ar = mActivities.valueAt(i);// ArrayMap可以通过下标来获取value值
                 Activity a = ar.activity;
                 if (a != null) {
-                    Configuration thisConfig = applyConfigCompatMainThread(mCurDefaultDisplayDpi, newConfig, ar.packageInfo.getCompatibilityInfo());
-                    if (!ar.activity.mFinished && (allActivities || !ar.paused)) {
-                        // If the activity is currently resumed, its configuration
-                        // needs to change right now.
+                    Configuration thisConfig = applyConfigCompatMainThread(mCurDefaultDisplayDpi,
+                                                newConfig, ar.packageInfo.getCompatibilityInfo());
+                    if (!ar.activity.mFinished && (allActivities || !ar.paused)) {//Activity没有被Finish，没有处于pause状态
+                        // If the activity is currently resumed, its configuration needs to change right now.
+                        // 如果Activity处于resume状态，他的配置信息需要立即变更。
                         callbacks.add(a);
                     } else if (thisConfig != null) {
-                        // Otherwise, we will tell it about the change the next time it is resumed or shown.  Note that the
+                        // Otherwise, we will tell it about the change the next time it is resumed or shown. Note that the
                         // activity manager may, before then, decide the activity needs to be destroyed to handle its new configuration.
                         ar.newConfig = thisConfig;
                     }
@@ -5612,7 +5616,7 @@ public final class ActivityThread extends ClientTransactionHandler {
      * {@link ActivityClientRecord#overrideConfig} is used to compute the final Configuration for
      * that Activity. {@link ActivityClientRecord#tmpConfig} is used as a temporary for delivering
      * the updated Configuration.
-     *
+     * 更新Activity的配置，ActivityClientRecord的overrideConfig变量用于计算Activity最后的配置信息；tmpConfig变量则是用于临时性的
      * @param r             ActivityClientRecord representing the Activity.
      * @param newBaseConfig The new configuration to use. This may be augmented with
      *                      {@link ActivityClientRecord#overrideConfig}.
@@ -5648,7 +5652,7 @@ public final class ActivityThread extends ClientTransactionHandler {
 
     /**
      * Creates a new Configuration only if override would modify base. Otherwise returns base.
-     *
+     * 如果复写会修改base配置，那就仅仅创建一个新的，否则直接返回base的配置
      * @param base     The base configuration.
      * @param override The update to apply to the base configuration. Can be null.
      * @return A Configuration representing base with override applied.
@@ -5664,7 +5668,7 @@ public final class ActivityThread extends ClientTransactionHandler {
 
     /**
      * Decides whether to update a component's configuration and whether to inform it.
-     *
+     * 决定是否更新组件的配置以及是否通知它。
      * @param cb        The component callback to notify of configuration change.
      * @param newConfig The new configuration.
      */
@@ -5673,8 +5677,8 @@ public final class ActivityThread extends ClientTransactionHandler {
             return;
         }
 
-        // ContextThemeWrappers may override the configuration for that context. We must check and
-        // apply any overrides defined.
+        // ContextThemeWrappers may override the configuration for that context. We must check and apply any
+        // overrides defined. contextthemewrapper可能会覆盖该上下文的配置。 我们必须检查并应用定义的任何覆盖。
         Configuration contextThemeWrapperOverrideConfig = null;
         if (cb instanceof ContextThemeWrapper) {
             final ContextThemeWrapper contextThemeWrapper = (ContextThemeWrapper) cb;
@@ -5682,8 +5686,8 @@ public final class ActivityThread extends ClientTransactionHandler {
         }
 
         // Apply the ContextThemeWrapper override if necessary.
-        // NOTE: Make sure the configurations are not modified, as they are treated as immutable
-        // in many places.
+        // NOTE: Make sure the configurations are not modified, as they are treated as immutable in many places.
+        // 如果必要，就用ContextThemeWrapper覆盖原来的，注意：需要确定配置秘钥被更改，因为它们在许多地方被视为不可改变的。
         final Configuration configToReport = createNewConfigAndUpdateIfNotNull(newConfig, contextThemeWrapperOverrideConfig);
         cb.onConfigurationChanged(configToReport);
     }
