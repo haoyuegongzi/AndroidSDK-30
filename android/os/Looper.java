@@ -152,13 +152,12 @@ public final class Looper {
      * {@link #quit()} to end the loop.
      */
     public static void loop() {
-        final Looper me = myLooper();
-        if (me == null) {
+        final Looper me = myLooper();//里面调用了sThreadLocal.get()获得prepareMainLooper()方法里面创建的Looper对象
+        if (me == null) {//如果Looper为空，则说明上一步创建的Looper对象失败，会抛出异常——因为通信无法继续
             throw new RuntimeException("No Looper; Looper.prepare() wasn't called on this thread.");
         }
         if (me.mInLoop) {
-            Slog.w(TAG, "Loop again would have the queued messages be executed"
-                    + " before this one completed.");
+            Slog.w(TAG, "Loop again would have the queued messages be executed before this one completed.");
         }
 
         me.mInLoop = true;
@@ -169,16 +168,12 @@ public final class Looper {
         Binder.clearCallingIdentity();
         final long ident = Binder.clearCallingIdentity();
 
-        // Allow overriding a threshold with a system prop. e.g.
-        // adb shell 'setprop log.looper.1000.main.slow 1 && stop && start'
-        final int thresholdOverride =
-                SystemProperties.getInt("log.looper."
-                        + Process.myUid() + "."
-                        + Thread.currentThread().getName()
-                        + ".slow", 0);
+        // Allow overriding a threshold with a system prop. e.g. adb shell 'setprop log.looper.1000.main.slow 1 && stop && start'
+        final int thresholdOverride = SystemProperties.getInt("log.looper." + Process.myUid() + "."
+                                                    + Thread.currentThread().getName() + ".slow", 0);
 
         boolean slowDeliveryDetected = false;
-
+        // 死循环，从消息队列不断的取消息
         for (;;) {
             Message msg = queue.next(); // might block
             if (msg == null) {
@@ -189,8 +184,7 @@ public final class Looper {
             // This must be in a local variable, in case a UI event sets the logger
             final Printer logging = me.mLogging;
             if (logging != null) {
-                logging.println(">>>>> Dispatching to " + msg.target + " " +
-                        msg.callback + ": " + msg.what);
+                logging.println(">>>>> Dispatching to " + msg.target + " " + msg.callback + ": " + msg.what);
             }
             // Make sure the observer won't change while processing a transaction.
             final Observer observer = sObserver;
@@ -220,7 +214,7 @@ public final class Looper {
             }
             long origWorkSource = ThreadLocalWorkSource.setUid(msg.workSourceUid);
             try {
-                msg.target.dispatchMessage(msg);
+                msg.target.dispatchMessage(msg);// message消息分发最关键的一行代码实现；target实质上就是一个Handler，
                 if (observer != null) {
                     observer.messageDispatched(token, msg);
                 }

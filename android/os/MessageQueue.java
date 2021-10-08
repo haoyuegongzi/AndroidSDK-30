@@ -877,7 +877,7 @@ public final class MessageQueue {
         Message p = mMessages;
         while (p != null) {
             Message n = p.next;
-            p.recycleUnchecked();
+            p.recycleUnchecked();// Recycles a Message
             p = n;
         }
         mMessages = null;
@@ -905,7 +905,7 @@ public final class MessageQueue {
                 do {
                     p = n;
                     n = p.next;
-                    p.recycleUnchecked();
+                    p.recycleUnchecked();// Recycles a Message
                 } while (n != null);
             }
         }

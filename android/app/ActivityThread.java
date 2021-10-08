@@ -6093,7 +6093,7 @@ public final class ActivityThread extends ClientTransactionHandler {
     }
 
     static void handleDumpHeap(DumpHeapData dhd) {
-        if (dhd.runGc) {
+        if (dhd.runGc) {// 清理GC垃圾
             System.gc();
             System.runFinalization();
             System.gc();
@@ -7452,7 +7452,8 @@ public final class ActivityThread extends ClientTransactionHandler {
         initializeMainlineModules();
 
         Process.setArgV0("<pre-initialized>");
-
+        // 主线程初始化Looper以及MessageQueue：prepareMainLooper()内部调用了prepare(false)方法，而prepare(false)方法内部
+        // 调用了Looper的构造方法new Looper(quitAllowed)，正是在Looper.java的构造方法里面完成了MessageQueue对象的初始化
         Looper.prepareMainLooper();
 
         // Find the value for {@link #PROC_START_SEQ_IDENT} if provided on the command line.
@@ -7468,16 +7469,18 @@ public final class ActivityThread extends ClientTransactionHandler {
         ActivityThread thread = new ActivityThread();
         thread.attach(false, startSeq);
 
-        if (sMainThreadHandler == null) {
+        if (sMainThreadHandler == null) {// 创建Main主线程里面的Handler对象
             sMainThreadHandler = thread.getHandler();
         }
 
-        if (false) {
+        if (false) {// DEBUG环境调试用。
             Looper.myLooper().setMessageLogging(new LogPrinter(Log.DEBUG, "ActivityThread"));
         }
 
         // End of event ActivityThreadMain.
         Trace.traceEnd(Trace.TRACE_TAG_ACTIVITY_MANAGER);
+        // 开始轮循操作（本质是一个for (;;) {......}的死循环），msg.target.dispatchMessage(msg)是Handler实现message消息分发最关键
+        // 的一行代码实现；target实质上就是一个Handler
         Looper.loop();
 
         throw new RuntimeException("Main thread loop unexpectedly exited");
