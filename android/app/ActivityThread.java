@@ -7481,7 +7481,12 @@ public final class ActivityThread extends ClientTransactionHandler {
         Trace.traceEnd(Trace.TRACE_TAG_ACTIVITY_MANAGER);
         // 开始轮循操作（本质是一个for (;;) {......}的死循环），msg.target.dispatchMessage(msg)是Handler实现message消息分发最关键
         // 的一行代码实现；target实质上就是一个Handler
+        // 线程的消息都是放到同一个MessageQueue里面，消息的入队enqueueMessage()和取消息（出队）next()都是加油synchronized同步锁，他们是互斥入/取消息，
+        // 且只能从头部取消息，而添加消息是按照消息的执行的先后顺序进行的排序，也就是队列的先进先出原则。
         Looper.loop();
+        // 问题：同一个时间范围内的消息，如果它是需要先于其他任何消息立刻执行，怎么办？因此我们需要给紧急需要执行的消息一个绿色通道，这个绿色通道就是
+        // 同步屏障的概念。顾名思义，同步屏障就是阻碍同步消息，只让异步消息通过
+        // Message对象初始化的时候并没有给target赋值，因此，target==null。这样，一条target==null的消息就进入了消息队列。
 
         throw new RuntimeException("Main thread loop unexpectedly exited");
     }

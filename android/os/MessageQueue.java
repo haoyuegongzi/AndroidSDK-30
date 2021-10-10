@@ -315,6 +315,9 @@ public final class MessageQueue {
         return newWatchedEvents;
     }
 
+    // 同步屏障的设置可以方便地处理那些优先级较高的异步消息。当我们调用Handler.getLooper().getQueue().postSyncBarrier()
+    // 并设置消息的setAsynchronous(true)时，target 即为 null ，也就开启了同步屏障。当在消息轮询器 Looper 在loop()中循环处理消息时，
+    // 如若开启了同步屏障，会优先处理其中的异步消息，而阻碍同步消息。
     @UnsupportedAppUsage
     Message next() {
         // Return here if the message loop has already quit and been disposed.
@@ -326,7 +329,11 @@ public final class MessageQueue {
         }
 
         int pendingIdleHandlerCount = -1; // -1 only during first iteration
+        // 1.如果nextPollTimeoutMillis=-1，一直阻塞不会超时。
+        // 2.如果nextPollTimeoutMillis=0，不会阻塞，立即返回。
+        // 3.如果nextPollTimeoutMillis>0，最长阻塞nextPollTimeoutMillis毫秒(超时)， 如果期间有程序唤醒会立即返回。
         int nextPollTimeoutMillis = 0;
+        // next()内部也是一个无限for循环
         for (;;) {
             if (nextPollTimeoutMillis != 0) {
                 Binder.flushPendingCommands();
@@ -334,25 +341,79 @@ public final class MessageQueue {
 
             nativePollOnce(ptr, nextPollTimeoutMillis);
 
+            // 这里加锁synchronized的意义：样由于synchronized（this）作用范围是所有 this正在访问的代码块都会有保护作用，
+            // 也就是它可以保证 next函数和 enqueueMessage函数能够实现互斥。这样才能真正的保证多线程访问的时候messagequeue的有序进行。
             synchronized (this) {
-                // Try to retrieve the next message.  Return if found.
+                // Try to retrieve the next message.  Return if found.获取系统开机到现在的时间
                 final long now = SystemClock.uptimeMillis();
                 Message prevMsg = null;
-                Message msg = mMessages;
+                Message msg = mMessages; //当前链表的头结点
+                //同步屏障的关键————如果msg != null 且 target（本质就是一个Handler） == null，那么它就是同步屏障屏障，需要循环遍历，一直往后找到第一个异步的消息
                 if (msg != null && msg.target == null) {
-                    // Stalled by a barrier.  Find the next asynchronous message in the queue.
+                    // Stalled by a barrier. Find the next asynchronous（异步） message in the queue.
+                    // 被同步屏障挡住，在队列中找到下一条异步消息
                     do {
                         prevMsg = msg;
                         msg = msg.next;
+                    // msg.isAsynchronous() == false：同步消息，继续循环，我们通过handler.send***或者post***发送消息时，mAsynchronous参数为false。
                     } while (msg != null && !msg.isAsynchronous());
+                    // isAsynchronous：是否是异步消息的标记；True：是异步消息；False：不是异步消息，是同步消息。异步消息优先处理。
+                    // 异步消息被优先处理。同步消息则需要先移除同步屏障，即调用removeSyncBarrier()方法后才能在下一次轮询过程中被处理。
+                    // 异步消息的应用场景：Android 系统中的 UI 更新相关的消息即为异步消息，需要优先处理。在更新View时，draw、requestLayout、invalidate
+                    // 等很多地方都调用了 ViewRootImpl#scheduleTraversals()
+                    // void scheduleTraversals() {
+                    //     if (!mTraversalScheduled) {
+                    //         mTraversalScheduled = true; //开启同步屏障
+                    //         mTraversalBarrier = mHandler.getLooper().getQueue().postSyncBarrier();
+                    //         mChoreographer.postCallback( Choreographer.CALLBACK_TRAVERSAL, mTraversalRunnable, null);//发送异步消息
+                    //         if (!mUnbufferedInputDispatch) {
+                    //             scheduleConsumeBatchedInput();
+                    //         }
+                    //         notifyRendererOfFramePending();
+                    //         pokeDrawLockIfNeeded();
+                    //     }
+                    // }
+                    // postCallback()回调最终走到了Choreographer.java的postCallbackDelayedInternal()方法：
+                    //     private void postCallbackDelayedInternal(int callbackType, Object action, Object token, long delayMillis) {
+                    //        ......// DEBUG_FRAMES日志信息
+                    //        synchronized (mLock) {
+                    //            final long now = SystemClock.uptimeMillis();
+                    //            final long dueTime = now + delayMillis;
+                    //            mCallbackQueues[callbackType].addCallbackLocked(dueTime, action, token);
+                    //
+                    //            if (dueTime <= now) {
+                    //                scheduleFrameLocked(now);
+                    //            } else {
+                    //                Message msg = mHandler.obtainMessage(MSG_DO_SCHEDULE_CALLBACK, action);
+                    //                msg.arg1 = callbackType;
+                    //                msg.setAsynchronous(true);//异步消息，开启同步屏障
+                    //                mHandler.sendMessageAtTime(msg, dueTime);
+                    //            }
+                    //        }
+                    //    }
+                    // 由于 UI 更新相关的消息是优先级最高的，这样系统就会优先处理这些异步消息。最后，当要移除同步屏障的时候需要调用
+                    // ViewRootImpl#unscheduleTraversals()：
+                    //     void unscheduleTraversals() {
+                    //        if (mTraversalScheduled) {
+                    //            mTraversalScheduled = false;
+                    //            mHandler.getLooper().getQueue().removeSyncBarrier(mTraversalBarrier);// 这里移除同步消息屏障
+                    //            mChoreographer.removeCallbacks(Choreographer.CALLBACK_TRAVERSAL, mTraversalRunnable, null);
+                    //        }
+                    // }
                 }
+                // 当消息队列开启同步屏障的时候（即标识为 msg.target == null 或者 mAsynchronous参数为false），消息机制在处理消息的时候，
+                // 优先处理异步消息。这样，同步屏障就起到了一种过滤和优先级的作用。
                 if (msg != null) {
+                    //如果有消息需要处理，先判断时间有没有到，如果没到的话设置一下阻塞时间，场景如常用的postDelay
                     if (now < msg.when) {
                         // Next message is not ready.  Set a timeout to wake up when it is ready.
+                        // 下一条消息还没有准备好，就设置一个time out超时时间，当下一条消息发过来的时候再唤醒。
+                        // 计算出离执行时间还有多久赋值给nextPollTimeoutMillis，表示nativePollOnce方法要等待nextPollTimeoutMillis时长后返回
                         nextPollTimeoutMillis = (int) Math.min(msg.when - now, Integer.MAX_VALUE);
                     } else {
-                        // Got a message.
+                        // Got a message.获取到消息
                         mBlocked = false;
+                        //链表操作，获取msg并且删除该节点
                         if (prevMsg != null) {
                             prevMsg.next = msg.next;
                         } else {
@@ -361,10 +422,11 @@ public final class MessageQueue {
                         msg.next = null;
                         if (DEBUG) Log.v(TAG, "Returning message: " + msg);
                         msg.markInUse();
+                        // 返回拿到的消息
                         return msg;
                     }
                 } else {
-                    // No more messages.
+                    // No more messages. 没有消息，nextPollTimeoutMillis复位
                     nextPollTimeoutMillis = -1;
                 }
 
@@ -422,6 +484,7 @@ public final class MessageQueue {
         }
     }
 
+    // 消息队列MessageQueue的退出，但是，主线程的消息队列是不能退出的，其他线程是可以在用完只会退出的。
     void quit(boolean safe) {
         if (!mQuitAllowed) {
             throw new IllegalStateException("Main thread not allowed to quit.");
@@ -478,8 +541,9 @@ public final class MessageQueue {
         // We don't need to wake the queue because the purpose of a barrier is to stall it.
         synchronized (this) {
             final int token = mNextBarrierToken++;
-            final Message msg = Message.obtain();
+            final Message msg = Message.obtain();//获取Message对象
             msg.markInUse();
+            // 我们注意到这里——————初始化Message对象的时候，并没有给Message的属性target赋值，而Message的target属性就是一个Handle对象，因此target==null，
             msg.when = when;
             msg.arg1 = token;
 
@@ -487,10 +551,12 @@ public final class MessageQueue {
             Message p = mMessages;
             if (when != 0) {
                 while (p != null && p.when <= when) {
+                    // 如果开启同步屏障的时间（假设记为T）T不为0，且当前的同步消息里有时间小于T，则prev也不为null
                     prev = p;
                     p = p.next;
                 }
             }
+            // 根据prev是不是为null，将 msg 按照时间顺序插入到 消息队列的合适位置
             if (prev != null) { // invariant: p == prev.next
                 msg.next = p;
                 prev.next = msg;
@@ -546,19 +612,23 @@ public final class MessageQueue {
         }
     }
 
+    // MessageQueue
     boolean enqueueMessage(Message msg, long when) {
         if (msg.target == null) {
             throw new IllegalArgumentException("Message must have a target.");
         }
-
+        // 锁开始的地方，synchronized锁是一个内置锁，也就是由系统控制锁的lock unlock时机的。是对所有调用同一个MessageQueue对象的线程来说，他们都是互斥的。
+        // 但是Handler里面，一个线程是对应着一个唯一的Looper对象，而Looper中又只有唯一的一个MessageQueue(在ActivityThread的main()方法中完成初始化的)。
+        // 因此，主线程就只有一个 MessageQueue 对象，或者说一般情况下，Handler通信系统中，就只有一个MessageQueue对象。所有的子线程向主线程发送消息的时候，
+        // 主线程一次都只会处理一个消息，其他的都需要等待，那么这个时候消息队列就不会出现混乱。
+        // 而消息队列MessageQueue遵循着先进先出的原则。消息延时时间加上发生消息时的系统时间，作为消息队列MessageQueue在入队消息Message时先后顺序的恶一个依据。
         synchronized (this) {
             if (msg.isInUse()) {
                 throw new IllegalStateException(msg + " This message is already in use.");
             }
 
-            if (mQuitting) {
-                IllegalStateException e = new IllegalStateException(
-                        msg.target + " sending message to a Handler on a dead thread");
+            if (mQuitting) {//当前队列已经退出销毁了，消息传递无法继续而终结，顺便recycle清空传进来的Message
+                IllegalStateException e = new IllegalStateException(msg.target + " sending message to a Handler on a dead thread");
                 Log.w(TAG, e.getMessage(), e);
                 msg.recycle();
                 return false;

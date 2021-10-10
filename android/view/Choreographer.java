@@ -452,9 +452,8 @@ public final class Choreographer {
     private void postCallbackDelayedInternal(int callbackType,
             Object action, Object token, long delayMillis) {
         if (DEBUG_FRAMES) {
-            Log.d(TAG, "PostCallback: type=" + callbackType
-                    + ", action=" + action + ", token=" + token
-                    + ", delayMillis=" + delayMillis);
+            Log.d(TAG, "PostCallback: type=" + callbackType + ", action=" + action +
+                            ", token=" + token + ", delayMillis=" + delayMillis);
         }
 
         synchronized (mLock) {

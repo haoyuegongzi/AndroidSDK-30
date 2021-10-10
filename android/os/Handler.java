@@ -95,14 +95,19 @@ public class Handler {
      * Handle system messages here.
      */
     public void dispatchMessage(@NonNull Message msg) {
+         // 这里的callback本质是一个Runnable线程，当我们通过Handler的post()系列方法发送消息的时候，便会执行if()条件分支，否则执行else分支。
         if (msg.callback != null) {
             handleCallback(msg);
-        } else {
+        } else {// 当我们通过Handler的send****()系列方法发送消息的时候，便执行else分支。
+            // 当我们通过Handler(Looper looper, Callback callback)的方式创建Handler对象时，便会执行if()条件分支，通过CallBack回调Message。
+            // 否则执行else分支。然后我们在Handler中实现Callback的方法，并在其中处理逻辑；
             if (mCallback != null) {
                 if (mCallback.handleMessage(msg)) {
                     return;
                 }
             }
+            // 当我们通过Handler(Looper looper)的方式创建Handler对象时，便会执行else条件分支，因为该方式创建Handler对象时，我们会
+            // 复写handleMessage()方法，并在其中处理逻辑；
             handleMessage(msg);
         }
     }
@@ -254,7 +259,7 @@ public class Handler {
     @UnsupportedAppUsage
     public Handler(@NonNull Looper looper, @Nullable Callback callback, boolean async) {
         mLooper = looper;
-        mQueue = looper.mQueue;
+        mQueue = looper.mQueue;//通过looper对象，获取消息队列MessageQueue并赋值。
         mCallback = callback;
         mAsynchronous = async;
     }
@@ -767,14 +772,16 @@ public class Handler {
         return sendMessage(msg);
     }
 
-    private boolean enqueueMessage(@NonNull MessageQueue queue, @NonNull Message msg,
-            long uptimeMillis) {
+    private boolean enqueueMessage(@NonNull MessageQueue queue, @NonNull Message msg, long uptimeMillis) {
+        // 在这里实现 Message 与Handler的绑定，同步消息中，这一步是必然会执行的，
+        // 所以Message的obtain()系列方法是否实现Message 与 Handler的绑定并不是很重要。
         msg.target = this;
         msg.workSourceUid = ThreadLocalWorkSource.getUid();
 
         if (mAsynchronous) {
             msg.setAsynchronous(true);
         }
+        // 调用 MessageQueue 的 enqueueMessage(Message msg, long when)方法，让Message消息入队。
         return queue.enqueueMessage(msg, uptimeMillis);
     }
 

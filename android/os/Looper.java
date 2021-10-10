@@ -175,9 +175,11 @@ public final class Looper {
         boolean slowDeliveryDetected = false;
         // 死循环，从消息队列不断的取消息
         for (;;) {
-            Message msg = queue.next(); // might block
+            Message msg = queue.next(); // might block：next()方法内部有synchronized同步锁，有可能被锁住。
             if (msg == null) {
                 // No message indicates that the message queue is quitting.
+                // 队列里没有消息,等到Handler调用send****()系列方法发送消息，消息在 MessageQueue的
+                // boolean enqueueMessage(Message msg, long when) 方法入队后，这里才能获取到
                 return;
             }
 
@@ -214,7 +216,39 @@ public final class Looper {
             }
             long origWorkSource = ThreadLocalWorkSource.setUid(msg.workSourceUid);
             try {
-                msg.target.dispatchMessage(msg);// message消息分发最关键的一行代码实现；target实质上就是一个Handler，
+                // message消息分发最关键的一行代码实现；target实质上就是一个Handler，那么，Message的对象是怎么实现持有发送msg消息的对象Handler的呢？
+                // 有两各实现方式：一是我们在调用Handler的send****()系列方法或者post****()系列方法时，Message内部有对Handler的封装：
+                // 无论是send****()系列方法还是post****()系列方法几乎最终都是调用到boolean sendMessageAtTime(Message msg, long uptimeMillis)方法，
+                // sendMessageAtFrontOfQueue()/sendMessageAtTime()/postAtFrontOfQueu()e三个方法没有调用sendMessageAtTime(Message msg, long uptimeMillis)
+                // 方法，而是直接调用了boolean enqueueMessage(MessageQueue queue, Message msg, long uptimeMillis)方法
+                // 该方法的作用就是将Message消息插入队列MessageQueue：
+                //      public boolean sendMessageAtTime(@NonNull Message msg, long uptimeMillis) {
+                //          MessageQueue queue = mQueue;
+                //          if (queue == null) {
+                //              RuntimeException e = new RuntimeException(this + " sendMessageAtTime() called with no mQueue");
+                //              Log.w("Looper", e.getMessage(), e);
+                //              return false;
+                //          }
+                //          return enqueueMessage(queue, msg, uptimeMillis);
+                //      }
+                // 而Message内部有对Handler的封装就是在方法boolean enqueueMessage(MessageQueue queue, Message msg, long uptimeMillis)
+                // 内部实现的：
+                //     private boolean enqueueMessage(@NonNull MessageQueue queue, @NonNull Message msg,
+                //            long uptimeMillis) {
+                //        // 在这里，Message内部实现了对当前发送消息的Handler对象的绑定。所以，在Looper.java的loop()方法中，才可以同msg.target
+                //        获取到Handler对象，然后调用dispatchMessage(msg)方法，进行消息的分发。
+                //        msg.target = this;
+                //
+                //        msg.workSourceUid = ThreadLocalWorkSource.getUid();
+                //
+                //        if (mAsynchronous) {
+                //            msg.setAsynchronous(true);
+                //        }
+                //        return queue.enqueueMessage(msg, uptimeMillis);
+                //    }
+                // +++++++++++问题1：send****()系列方法或者post****()系列方法最终调用到sendMessageAtTime()方法，这之间的延时的处理+++++++++++
+                // +++++++++++问题2：msg.target.dispatchMessage(msg)实现消息分发的过程+++++++++++
+                msg.target.dispatchMessage(msg);
                 if (observer != null) {
                     observer.messageDispatched(token, msg);
                 }
@@ -284,7 +318,7 @@ public final class Looper {
      * Return the Looper object associated with the current thread.  Returns
      * null if the calling thread is not associated with a Looper.
      */
-    public static @Nullable Looper myLooper() {
+    public static @Nullable Looper myLooper() {//这是Handler中定义的ThreadLocal，ThreadLocal主要解多线程并发的问题
         return sThreadLocal.get();
     }
 
