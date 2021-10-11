@@ -24,6 +24,8 @@ import android.util.Log;
 import android.util.Printer;
 import android.util.SparseArray;
 import android.util.proto.ProtoOutputStream;
+import android.view.Choreographer;
+import android.view.ViewRootImpl;
 
 import java.io.FileDescriptor;
 import java.lang.annotation.Retention;
@@ -320,9 +322,9 @@ public final class MessageQueue {
     // 如若开启了同步屏障，会优先处理其中的异步消息，而阻碍同步消息。
     @UnsupportedAppUsage
     Message next() {
-        // Return here if the message loop has already quit and been disposed.
-        // This can happen if the application tries to restart a looper after quit
-        // which is not supported.
+        // Return here if the message loop has already quit and been disposed. This can happen if the application tries
+        // to restart a looper after quit which is not supported.
+        // 如果消息循环已经退出并已被释放，则返回此处。 如果应用程序在退出后试图重新启动一个不支持的活套程序，就会发生这种情况。
         final long ptr = mPtr;
         if (ptr == 0) {
             return null;
@@ -375,7 +377,7 @@ public final class MessageQueue {
                     // }
                     // postCallback()回调最终走到了Choreographer.java的postCallbackDelayedInternal()方法：
                     //     private void postCallbackDelayedInternal(int callbackType, Object action, Object token, long delayMillis) {
-                    //        ......// DEBUG_FRAMES日志信息
+                    ////        ......// DEBUG_FRAMES日志信息
                     //        synchronized (mLock) {
                     //            final long now = SystemClock.uptimeMillis();
                     //            final long dueTime = now + delayMillis;
@@ -391,8 +393,8 @@ public final class MessageQueue {
                     //            }
                     //        }
                     //    }
-                    // 由于 UI 更新相关的消息是优先级最高的，这样系统就会优先处理这些异步消息。最后，当要移除同步屏障的时候需要调用
-                    // ViewRootImpl#unscheduleTraversals()：
+                    //// 由于 UI 更新相关的消息是优先级最高的，这样系统就会优先处理这些异步消息。最后，当要移除同步屏障的时候需要调用
+                    //ViewRootImpl#unscheduleTraversals()：
                     //     void unscheduleTraversals() {
                     //        if (mTraversalScheduled) {
                     //            mTraversalScheduled = false;
@@ -484,7 +486,7 @@ public final class MessageQueue {
         }
     }
 
-    // 消息队列MessageQueue的退出，但是，主线程的消息队列是不能退出的，其他线程是可以在用完只会退出的。
+    // 消息队列MessageQueue的退出，但是，主线程的消息队列是不能退出的，其他线程是可以在用完之后退出的。
     void quit(boolean safe) {
         if (!mQuitAllowed) {
             throw new IllegalStateException("Main thread not allowed to quit.");
@@ -621,7 +623,7 @@ public final class MessageQueue {
         // 但是Handler里面，一个线程是对应着一个唯一的Looper对象，而Looper中又只有唯一的一个MessageQueue(在ActivityThread的main()方法中完成初始化的)。
         // 因此，主线程就只有一个 MessageQueue 对象，或者说一般情况下，Handler通信系统中，就只有一个MessageQueue对象。所有的子线程向主线程发送消息的时候，
         // 主线程一次都只会处理一个消息，其他的都需要等待，那么这个时候消息队列就不会出现混乱。
-        // 而消息队列MessageQueue遵循着先进先出的原则。消息延时时间加上发生消息时的系统时间，作为消息队列MessageQueue在入队消息Message时先后顺序的恶一个依据。
+        // 而消息队列MessageQueue遵循着先进先出的原则。消息延时时间加上发送消息时的系统时间，作为消息队列MessageQueue在入队消息Message时先后顺序的恶一个依据。
         synchronized (this) {
             if (msg.isInUse()) {
                 throw new IllegalStateException(msg + " This message is already in use.");
@@ -635,7 +637,7 @@ public final class MessageQueue {
             }
 
             msg.markInUse();
-            msg.when = when;
+            msg.when = when;//消息的执行时间
             Message p = mMessages;
             boolean needWake;
             if (p == null || when == 0 || when < p.when) {
@@ -644,9 +646,9 @@ public final class MessageQueue {
                 mMessages = msg;
                 needWake = mBlocked;
             } else {
-                // Inserted within the middle of the queue.  Usually we don't have to wake
-                // up the event queue unless there is a barrier at the head of the queue
-                // and the message is the earliest asynchronous message in the queue.
+                // Inserted within the middle of the queue.  Usually we don't have to wake up the event queue unless there
+                // is a barrier at the head of the queue and the message is the earliest asynchronous message in the queue.
+                // 插入到队列中间。 通常我们不需要唤醒事件队列，除非队列前面有一个屏障，并且消息是队列中最早的异步消息。
                 needWake = mBlocked && p.target == null && msg.isAsynchronous();
                 Message prev;
                 for (;;) {
@@ -875,7 +877,6 @@ public final class MessageQueue {
             }
         }
     }
-
 
     void removeCallbacksAndMessages(Handler h, Object object) {
         if (h == null) {

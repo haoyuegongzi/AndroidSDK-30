@@ -233,8 +233,7 @@ public final class Looper {
                 //      }
                 // 而Message内部有对Handler的封装就是在方法boolean enqueueMessage(MessageQueue queue, Message msg, long uptimeMillis)
                 // 内部实现的：
-                //     private boolean enqueueMessage(@NonNull MessageQueue queue, @NonNull Message msg,
-                //            long uptimeMillis) {
+                //     private boolean enqueueMessage(@NonNull MessageQueue queue, @NonNull Message msg, long uptimeMillis) {
                 //        // 在这里，Message内部实现了对当前发送消息的Handler对象的绑定。所以，在Looper.java的loop()方法中，才可以同msg.target
                 //        获取到Handler对象，然后调用dispatchMessage(msg)方法，进行消息的分发。
                 //        msg.target = this;
@@ -301,8 +300,7 @@ public final class Looper {
         }
     }
 
-    private static boolean showSlowLog(long threshold, long measureStart, long measureEnd,
-            String what, Message msg) {
+    private static boolean showSlowLog(long threshold, long measureStart, long measureEnd, String what, Message msg) {
         final long actualTime = measureEnd - measureStart;
         if (actualTime < threshold) {
             return false;
